@@ -203,6 +203,7 @@ func (observer *fakeObserver) ObserveRefresh(name, status string, _ time.Duratio
 func (observer *fakeObserver) ObserveSkipped(name, reason string) {
 	observer.skipped <- skipEvent{name, reason}
 }
+func (observer *fakeObserver) ObserveCachePublishError(string, string) {}
 
 type fakeClock struct {
 	now    time.Time
@@ -213,11 +214,26 @@ func newFakeClock() *fakeClock {
 	return &fakeClock{now: time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC), timers: make(chan fakeTimer, 4)}
 }
 func (clock *fakeClock) Now() time.Time { return clock.now }
-func (clock *fakeClock) After(delay time.Duration) <-chan time.Time {
+func (clock *fakeClock) NewTimer(delay time.Duration) Timer {
 	fire := make(chan time.Time, 1)
 	clock.timers <- fakeTimer{delay: delay, fire: fire}
-	return fire
+	return &fakeSchedTimer{fire: fire}
 }
+
+type fakeSchedTimer struct {
+	fire chan time.Time
+}
+
+func (timer *fakeSchedTimer) Chan() <-chan time.Time { return timer.fire }
+func (timer *fakeSchedTimer) Stop() bool {
+	select {
+	case <-timer.fire:
+	default:
+	}
+	return true
+}
+func (timer *fakeSchedTimer) Reset(time.Duration) bool { return false }
+
 func receive[Value any](t *testing.T, channel <-chan Value) Value {
 	t.Helper()
 	select {

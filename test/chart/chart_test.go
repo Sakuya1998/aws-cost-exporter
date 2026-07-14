@@ -31,6 +31,7 @@ func TestChartAssetsContainRuntimeContracts(t *testing.T) {
 	values := read(t, filepath.Join(chart, "values.yaml"))
 	for _, required := range []string{
 		"repository: ghcr.io/sakuya1998/aws-cost-exporter",
+		"max_pages: 50",
 		"runAsUser: 65532", "runAsGroup: 65532", "runAsNonRoot: true",
 		"readOnlyRootFilesystem: true", "allowPrivilegeEscalation: false",
 		"path: /healthz", "path: /ready",

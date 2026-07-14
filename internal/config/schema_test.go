@@ -31,7 +31,7 @@ func TestDefaultReturnsExpectedConfig(t *testing.T) {
 			RateLimit: config.RateLimitConfig{RequestsPerSecond: 0.5, Burst: 1},
 		},
 		CostExplorer: config.CostExplorerConfig{
-			Enabled: true, CostMetric: "UnblendedCost",
+			Enabled: true, CostMetric: "UnblendedCost", MaxPages: 50,
 			RefreshInterval: 6 * time.Hour, StartupRefresh: true,
 			JitterRatio: 0.10,
 			Forecast:    config.ForecastConfig{Enabled: true, PredictionInterval: 80},

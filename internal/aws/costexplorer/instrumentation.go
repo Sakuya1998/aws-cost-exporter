@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -32,6 +31,7 @@ type API interface {
 type Observer interface {
 	ObserveRequest(operation, status string, duration time.Duration)
 	ObserveRetry(operation, reason string)
+	ObservePaginationPage(operation string)
 }
 
 // InstrumentedClient applies global rate limiting and bounded observations.
@@ -145,17 +145,18 @@ func requestStatus(err error) string {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return "canceled"
 	}
+	var apiError smithy.APIError
+	if errors.As(err, &apiError) && isThrottleCode(apiError.ErrorCode()) {
+		return "throttle"
+	}
 	return "error"
 }
 
 // retryReason converts arbitrary retry errors to bounded reason labels.
 func retryReason(err error) string {
 	var apiError smithy.APIError
-	if errors.As(err, &apiError) {
-		code := strings.ToLower(apiError.ErrorCode())
-		if strings.Contains(code, "thrott") || code == "limitexceededexception" {
-			return "throttle"
-		}
+	if errors.As(err, &apiError) && isThrottleCode(apiError.ErrorCode()) {
+		return "throttle"
 	}
 	var networkError net.Error
 	if errors.As(err, &networkError) && networkError.Timeout() {
@@ -172,3 +173,6 @@ func (discardObserver) ObserveRequest(string, string, time.Duration) {}
 
 // ObserveRetry discards a retry observation.
 func (discardObserver) ObserveRetry(string, string) {}
+
+// ObservePaginationPage discards a pagination observation.
+func (discardObserver) ObservePaginationPage(string) {}

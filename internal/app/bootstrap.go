@@ -52,7 +52,7 @@ func Run(ctx context.Context, value config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	usage, err := ce.NewUsageAdapter(instrumented)
+	usage, err := ce.NewUsageAdapter(instrumented, value.CostExplorer.MaxPages, telemetry)
 	if err != nil {
 		return err
 	}
@@ -117,6 +117,7 @@ func Run(ctx context.Context, value config.Config, logger *slog.Logger) error {
 			Multiplier: value.Scheduler.FailureBackoff.Multiplier,
 		},
 		Observer: telemetry,
+		Logger:   logger,
 	})
 	if err != nil {
 		return err
@@ -130,10 +131,22 @@ func Run(ctx context.Context, value config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 	logger.Info("aws-cost-exporter started", "address", listener.Addr().String())
-	return runServices(ctx, runner, server, listener)
+	return RunServices(ctx, runner, server, listener, value.Server.ShutdownTimeout, logger)
 }
 
-func runServices(ctx context.Context, runner *scheduler.Runner, server *httpserver.Server, listener net.Listener) error {
+type schedulerService interface {
+	Run(context.Context)
+}
+
+// RunServices coordinates the scheduler and HTTP server until shutdown.
+func RunServices(
+	ctx context.Context,
+	runner schedulerService,
+	server *httpserver.Server,
+	listener net.Listener,
+	schedulerShutdownTimeout time.Duration,
+	logger *slog.Logger,
+) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	schedulerDone, serverDone := make(chan struct{}), make(chan error, 1)
@@ -150,12 +163,28 @@ func runServices(ctx context.Context, runner *scheduler.Runner, server *httpserv
 	case <-ctx.Done():
 		cancel()
 		shutdownErr := server.Shutdown(context.Background())
-		<-schedulerDone
+		waitForScheduler(runner, schedulerDone, schedulerShutdownTimeout, logger)
 		serveErr := <-serverDone
 		if errors.Is(serveErr, http.ErrServerClosed) {
 			serveErr = nil
 		}
 		return errors.Join(shutdownErr, serveErr)
+	}
+}
+
+func waitForScheduler(_ schedulerService, done <-chan struct{}, timeout time.Duration, logger *slog.Logger) {
+	if timeout <= 0 {
+		<-done
+		return
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		if logger != nil {
+			logger.Warn("scheduler did not stop before shutdown timeout", "timeout", timeout)
+		}
 	}
 }
 
@@ -201,8 +230,11 @@ func (reader filteredReader) ReadForecast(ctx context.Context, query ports.Forec
 
 type systemClock struct{}
 
-func (systemClock) Now() time.Time                             { return time.Now() }
-func (systemClock) After(delay time.Duration) <-chan time.Time { return time.After(delay) }
+func (systemClock) Now() time.Time { return time.Now() }
+
+func (systemClock) NewTimer(delay time.Duration) scheduler.Timer {
+	return scheduler.NewSystemTimer(delay)
+}
 
 var _ ce.Observer = (*appmetrics.Exporter)(nil)
 var _ scheduler.Observer = (*appmetrics.Exporter)(nil)

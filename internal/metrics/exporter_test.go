@@ -33,6 +33,8 @@ func TestExporterCollectsStatusEventsAndBoundedLabels(t *testing.T) {
 	subject.ObserveRetry("private-operation", "private-error")
 	subject.ObserveSkipped("total", "single_flight")
 	subject.ObserveOverflow("service", 5)
+	subject.ObservePaginationPage("GetCostAndUsage")
+	subject.ObserveCachePublishError("total", "publish")
 
 	registry := prometheus.NewPedanticRegistry()
 	registry.MustRegister(subject)
@@ -59,8 +61,8 @@ aws_cost_exporter_snapshot_series{collector="total"} 4
 		t.Fatalf("GatherAndCompare() error = %v", err)
 	}
 	families, err := registry.Gather()
-	if err != nil || len(families) != 13 {
-		t.Fatalf("Gather() returned %d families, %v; want 13", len(families), err)
+	if err != nil || len(families) != 15 {
+		t.Fatalf("Gather() returned %d families, %v; want 15", len(families), err)
 	}
 	checks := []struct {
 		name   string
@@ -73,6 +75,8 @@ aws_cost_exporter_snapshot_series{collector="total"} 4
 		{"bounded retry", subject.retries.WithLabelValues("unknown", "other"), 1},
 		{"skipped", subject.skipped.WithLabelValues("total", "single_flight"), 1},
 		{"overflow", subject.overflow.WithLabelValues("service"), 5},
+		{"pagination", subject.pagination.WithLabelValues("GetCostAndUsage"), 1},
+		{"cache publish", subject.cachePublishErrors.WithLabelValues("total", "publish"), 1},
 	}
 	for _, check := range checks {
 		if got := testutil.ToFloat64(check.metric); got != check.want {

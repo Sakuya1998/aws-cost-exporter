@@ -131,6 +131,9 @@ func (server *Server) Shutdown(parent context.Context) error {
 	return server.server.Shutdown(ctx)
 }
 
+// ShutdownTimeout returns the configured graceful shutdown deadline.
+func (server *Server) ShutdownTimeout() time.Duration { return server.shutdownTimeout }
+
 type statusResponse struct {
 	Status string `json:"status"`
 	Reason string `json:"reason,omitempty"`

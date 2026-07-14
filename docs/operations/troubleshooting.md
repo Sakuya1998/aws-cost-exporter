@@ -13,9 +13,11 @@ latest attempt, while `aws_cost_exporter_cache_age_seconds` measures data age.
 For 403 errors, confirm Cost Explorer is enabled and the runtime identity has
 the two actions in `examples/iam/mvp-readonly.json`. Region must be
 `us-east-1`. Authorization failures are not retried aggressively. For
-throttling or 5xx responses, inspect `aws_cost_exporter_aws_api_requests_total`,
-retry counters, and request-duration histograms; the SDK retries before the
-scheduler applies failure backoff.
+throttling or 5xx responses, inspect `aws_cost_exporter_aws_api_requests_total`
+(including `status="throttle"`), `aws_cost_exporter_aws_api_retries_total`,
+and `aws_cost_exporter_pagination_pages_total`. The SDK retries throttled
+requests before the scheduler applies failure backoff and may rerun the entire
+collector refresh.
 
 ## Unexpected cost data
 
@@ -26,8 +28,11 @@ history, not historical billing rows. Forecast covers today through month end;
 month-end estimates must subtract today's amount from MTD before adding it.
 
 Dimension values beyond the configured limit are folded into `__other__`
-without losing totals. Inspect
-`aws_cost_exporter_dimension_overflow_values_total` before raising the limit.
+without losing totals. `series_limit` caps exported Prometheus series only;
+Cost Explorer may still return more groups. Inspect
+`aws_cost_exporter_dimension_overflow_values_total` and
+`aws_cost_exporter_pagination_pages_total` before raising limits. Pagination
+beyond `cost_explorer.max_pages` fails the collector refresh.
 
 ## Deployment
 

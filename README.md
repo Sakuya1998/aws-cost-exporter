@@ -15,6 +15,16 @@ Cost Explorer API requests are billed per paginated request. Defaults refresh
 every 6h and rate-limit AWS calls to 0.5 RPS.
 The exporter does not call AWS during a Prometheus scrape; collectors refresh
 an atomic in-memory snapshot.
+With every collector enabled and unpaginated responses, one startup refresh
+issues 8 `GetCostAndUsage` calls plus 1 `GetCostForecast`. Pagination
+multiplies usage: `collectors × 2 × pages + forecast`. Use
+`cost_explorer.filters.services` or `cost_explorer.filters.regions` on large
+accounts to reduce pages before collection.
+`cost_explorer.max_pages` (default 50) hard-stops each paginated query.
+`cost_explorer.dimensions.series_limit` caps Prometheus export series only; it
+does not limit Cost Explorer requests. Service, region, and account families
+honor `series_limit`; `total` and forecast metrics expand naturally by
+`currency` label and are not subject to `series_limit`.
 AWS updates billing data only periodically, and delayed charges can be
 backfilled. Metrics are operational observations, not accounting records.
 Never sum different `currency` label values.
@@ -143,6 +153,7 @@ aws_cost_exporter_collector_up, aws_cost_exporter_cache_age_seconds
 aws_cost_exporter_last_success_timestamp_seconds, aws_cost_exporter_last_attempt_timestamp_seconds
 aws_cost_exporter_snapshot_series, aws_cost_exporter_refresh_total
 aws_cost_exporter_aws_api_requests_total, aws_cost_exporter_aws_api_retries_total
+aws_cost_exporter_pagination_pages_total, aws_cost_exporter_cache_publish_errors_total
 aws_cost_exporter_scheduler_skipped_runs_total
 aws_cost_exporter_dimension_overflow_values_total
 aws_cost_exporter_refresh_duration_seconds, aws_cost_exporter_aws_api_request_duration_seconds

@@ -18,7 +18,7 @@ import (
 // TestUsageAdapterSerializesQueriesAndMapsCompletePages verifies the port.
 func TestUsageAdapterSerializesQueriesAndMapsCompletePages(t *testing.T) {
 	api := &usageAPI{}
-	subject, err := NewUsageAdapter(api)
+	subject, err := NewUsageAdapter(api, 50, nil)
 	if err != nil {
 		t.Fatalf("NewUsageAdapter() error = %v", err)
 	}
@@ -50,11 +50,11 @@ func TestUsageAdapterSerializesQueriesAndMapsCompletePages(t *testing.T) {
 
 // TestUsageAdapterRejectsPartialFailuresAndInvalidQueries verifies boundaries.
 func TestUsageAdapterRejectsPartialFailuresAndInvalidQueries(t *testing.T) {
-	if adapter, err := NewUsageAdapter(nil); adapter != nil || !errors.Is(err, ErrNilUsageAPI) {
+	if adapter, err := NewUsageAdapter(nil, 50, nil); adapter != nil || !errors.Is(err, ErrNilUsageAPI) {
 		t.Fatalf("NewUsageAdapter(nil) = %#v, %v", adapter, err)
 	}
 	api := &usageAPI{err: &smithy.GenericAPIError{Code: "ThrottlingException", Message: "private"}}
-	subject, _ := NewUsageAdapter(api)
+	subject, _ := NewUsageAdapter(api, 50, nil)
 	query := ports.CostQuery{Period: cost.DayContaining(time.Now()), GroupBy: cost.DimensionTotal}
 	values, err := subject.ReadCosts(context.Background(), query)
 	var classified *ClassifiedError

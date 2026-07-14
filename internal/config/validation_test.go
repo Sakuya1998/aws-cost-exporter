@@ -40,6 +40,18 @@ func TestValidateEnforcesCrossFieldInvariants(t *testing.T) {
 		{name: "series limit", path: "cost_explorer.dimensions.series_limit", mutate: func(value *config.Config) {
 			value.CostExplorer.Dimensions.SeriesLimit = 0
 		}},
+		{name: "series limit upper bound", path: "cost_explorer.dimensions.series_limit", mutate: func(value *config.Config) {
+			value.CostExplorer.Dimensions.SeriesLimit = 2001
+		}},
+		{name: "max pages", path: "cost_explorer.max_pages", mutate: func(value *config.Config) {
+			value.CostExplorer.MaxPages = 0
+		}},
+		{name: "max pages upper bound", path: "cost_explorer.max_pages", mutate: func(value *config.Config) {
+			value.CostExplorer.MaxPages = 201
+		}},
+		{name: "rate limit upper bound", path: "aws.rate_limit.requests_per_second", mutate: func(value *config.Config) {
+			value.AWS.RateLimit.RequestsPerSecond = 1.5
+		}},
 		{name: "freshness", path: "cache.freshness_ttl", mutate: func(value *config.Config) {
 			value.Cache.FreshnessTTL = time.Hour
 		}},

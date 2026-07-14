@@ -4,6 +4,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"math"
 	rand "math/rand/v2"
 	"strings"
@@ -23,16 +24,17 @@ type Store interface {
 	RecordFailure(string) error
 }
 
-// Clock supplies current time and cancellable scheduling channels.
+// Clock supplies current time and resettable scheduling timers.
 type Clock interface {
 	Now() time.Time
-	After(time.Duration) <-chan time.Time
+	NewTimer(time.Duration) Timer
 }
 
 // Observer must be concurrency-safe and return quickly from bounded event calls.
 type Observer interface {
 	ObserveRefresh(collector, status string, duration time.Duration)
 	ObserveSkipped(collector, reason string)
+	ObserveCachePublishError(collector, operation string)
 }
 
 // Config controls basic periodic scheduling.
@@ -43,6 +45,7 @@ type Config struct {
 	MaxConcurrency int
 	Backoff        BackoffConfig
 	Observer       Observer
+	Logger         *slog.Logger
 }
 
 // BackoffConfig controls collector-level retry delays.
@@ -103,13 +106,20 @@ func (runner *Runner) Run(ctx context.Context) {
 	if runner.config.StartupRefresh {
 		runner.dispatch(runner.clock.Now())
 	}
+	timer := runner.clock.NewTimer(runner.nextDelay())
+	defer stopTimer(timer)
 	for {
 		select {
 		case <-ctx.Done():
+			stopTimer(timer)
 			runner.workers.Wait()
 			return
-		case <-runner.clock.After(runner.nextDelay()):
+		case <-timer.Chan():
 			runner.dispatch(runner.clock.Now())
+			if !timer.Reset(runner.nextDelay()) {
+				stopTimer(timer)
+				timer = runner.clock.NewTimer(runner.nextDelay())
+			}
 		}
 	}
 }
@@ -174,25 +184,41 @@ func (runner *Runner) collect(ctx context.Context, reference time.Time, instance
 			runner.config.Observer.ObserveRefresh(instance.Name(), status, runner.clock.Now().Sub(started))
 		}
 		if err == nil {
-			_ = runner.store.Publish(instance.Name(), snapshot)
+			if publishErr := runner.store.Publish(instance.Name(), snapshot); publishErr != nil {
+				runner.observeCachePublishError(instance.Name(), "publish", publishErr)
+			}
 			return
 		}
 		if ctx.Err() != nil {
 			return
 		}
 		name := instance.Name()
-		_ = runner.store.RecordFailure(name)
+		if recordErr := runner.store.RecordFailure(name); recordErr != nil {
+			runner.observeCachePublishError(name, "record_failure", recordErr)
+		}
 		var retryable interface{ Retryable() bool }
 		if !errors.As(err, &retryable) || !retryable.Retryable() {
 			return
 		}
+		backoff := runner.clock.NewTimer(delay)
 		select {
-		case <-runner.clock.After(delay):
+		case <-backoff.Chan():
+			stopTimer(backoff)
 			reference = runner.clock.Now()
 			delay = runner.nextBackoff(delay)
 		case <-ctx.Done():
+			stopTimer(backoff)
 			return
 		}
+	}
+}
+
+func (runner *Runner) observeCachePublishError(collector, operation string, err error) {
+	if runner.config.Logger != nil {
+		runner.config.Logger.Warn("cache publish failed", "collector", collector, "operation", operation, "err", err)
+	}
+	if runner.config.Observer != nil {
+		runner.config.Observer.ObserveCachePublishError(collector, operation)
 	}
 }
 

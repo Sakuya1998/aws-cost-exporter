@@ -48,7 +48,7 @@ func TestUsagePaginatorReadsEveryEndpointPage(t *testing.T) {
 		t.Fatalf("New() returned an unexpected error: %v", err)
 	}
 
-	results, err := NewUsagePaginator(client).Read(context.Background(), validUsageInput())
+	results, err := NewUsagePaginator(client, 50, nil).Read(context.Background(), validUsageInput())
 	if err != nil {
 		t.Fatalf("Read() returned an unexpected error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestUsagePaginatorRejectsIncompletePagination(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			api := &pageAPI{pages: test.pages}
-			results, err := NewUsagePaginator(api).Read(context.Background(), validUsageInput())
+			results, err := NewUsagePaginator(api, 50, nil).Read(context.Background(), validUsageInput())
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("Read() error = %v, want %v", err, test.wantErr)
 			}
@@ -97,6 +97,19 @@ func TestUsagePaginatorRejectsIncompletePagination(t *testing.T) {
 				t.Fatalf("Read() returned %d results, want %d", len(results), test.wantLen)
 			}
 		})
+	}
+}
+
+func TestUsagePaginatorRejectsPageLimitExceeded(t *testing.T) {
+	pages := []pageResponse{
+		{output: &awscostexplorer.GetCostAndUsageOutput{NextPageToken: aws.String("page-2")}},
+		{output: &awscostexplorer.GetCostAndUsageOutput{NextPageToken: aws.String("page-3")}},
+		{output: &awscostexplorer.GetCostAndUsageOutput{}},
+	}
+	api := &pageAPI{pages: pages}
+	_, err := NewUsagePaginator(api, 2, nil).Read(context.Background(), validUsageInput())
+	if !errors.Is(err, ErrPageLimitExceeded) {
+		t.Fatalf("Read() error = %v, want %v", err, ErrPageLimitExceeded)
 	}
 }
 

@@ -23,11 +23,11 @@ type UsageAdapter struct {
 }
 
 // NewUsageAdapter validates and constructs a usage adapter.
-func NewUsageAdapter(api API) (*UsageAdapter, error) {
+func NewUsageAdapter(api API, maxPages int, observer Observer) (*UsageAdapter, error) {
 	if api == nil {
 		return nil, ErrNilUsageAPI
 	}
-	return &UsageAdapter{paginator: NewUsagePaginator(api)}, nil
+	return &UsageAdapter{paginator: NewUsagePaginator(api, maxPages, observer)}, nil
 }
 
 // ReadCosts serializes a domain query, reads every page, and maps the result.

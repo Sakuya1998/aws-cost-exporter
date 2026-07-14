@@ -29,6 +29,7 @@ type Exporter struct {
 
 	up, success, attempt, age, series, buildInfo  *prometheus.Desc
 	refresh, requests, retries, skipped, overflow *prometheus.CounterVec
+	pagination, cachePublishErrors                  *prometheus.CounterVec
 	refreshDuration, requestDuration              *prometheus.HistogramVec
 	events                                        []prometheus.Collector
 }
@@ -61,9 +62,15 @@ func NewExporter(reader StatusReader, clock ports.Clock, build version.Info, nam
 	exporter.retries = counter("aws_api_retries_total", "Cost Explorer SDK retries.", []string{"operation", "reason"})
 	exporter.skipped = counter("scheduler_skipped_runs_total", "Scheduler runs skipped before execution.", []string{"collector", "reason"})
 	exporter.overflow = counter("dimension_overflow_values_total", "Dimension values processed into overflow during collection attempts.", []string{"dimension"})
+	exporter.pagination = counter("pagination_pages_total", "Cost Explorer pagination pages read successfully.", []string{"operation"})
+	exporter.cachePublishErrors = counter("cache_publish_errors_total", "Cache publish or failure-record errors.", []string{"collector", "operation"})
 	exporter.refreshDuration = histogram("refresh_duration_seconds", "Collector refresh duration.", []string{"collector"}, []float64{1, 5, 10, 30, 60, 120, 300})
 	exporter.requestDuration = histogram("aws_api_request_duration_seconds", "Cost Explorer API request duration.", []string{"operation"}, []float64{.1, .5, 1, 2, 5, 10, 30, 60})
-	exporter.events = []prometheus.Collector{exporter.refresh, exporter.requests, exporter.retries, exporter.skipped, exporter.overflow, exporter.refreshDuration, exporter.requestDuration}
+	exporter.events = []prometheus.Collector{
+		exporter.refresh, exporter.requests, exporter.retries, exporter.skipped,
+		exporter.overflow, exporter.pagination, exporter.cachePublishErrors,
+		exporter.refreshDuration, exporter.requestDuration,
+	}
 	return exporter, nil
 }
 
@@ -110,7 +117,7 @@ func (exporter *Exporter) ObserveRefresh(name, status string, duration time.Dura
 // ObserveRequest records one Cost Explorer API request.
 func (exporter *Exporter) ObserveRequest(operation, status string, duration time.Duration) {
 	operation = bounded(operation, "GetCostAndUsage", "GetCostForecast")
-	exporter.requests.WithLabelValues(operation, bounded(status, "success", "error", "canceled")).Inc()
+	exporter.requests.WithLabelValues(operation, bounded(status, "success", "error", "canceled", "throttle")).Inc()
 	exporter.requestDuration.WithLabelValues(operation).Observe(seconds(duration))
 }
 
@@ -134,6 +141,19 @@ func (exporter *Exporter) ObserveOverflow(dimension string, count int) {
 	if count > 0 {
 		exporter.overflow.WithLabelValues(bounded(dimension, "service", "region", "account")).Add(float64(count))
 	}
+}
+
+// ObservePaginationPage records one successfully read Cost Explorer page.
+func (exporter *Exporter) ObservePaginationPage(operation string) {
+	exporter.pagination.WithLabelValues(bounded(operation, "GetCostAndUsage", "GetCostForecast")).Inc()
+}
+
+// ObserveCachePublishError records a cache publish or failure-record error.
+func (exporter *Exporter) ObserveCachePublishError(collector, operation string) {
+	if !exporter.isKnown(collector) {
+		return
+	}
+	exporter.cachePublishErrors.WithLabelValues(collector, bounded(operation, "publish", "record_failure")).Inc()
 }
 
 func (exporter *Exporter) isKnown(name string) bool { _, exists := exporter.known[name]; return exists }

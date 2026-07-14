@@ -59,6 +59,8 @@ config:
       format: json
     aws:
       region: us-east-1
+    cost_explorer:
+      max_pages: 50
 
 serviceMonitor:
   enabled: false

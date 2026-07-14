@@ -35,6 +35,9 @@ func (observer *recordingObserver) ObserveRetry(operation, reason string) {
 	observer.retries = append(observer.retries, observedRetry{operation, reason})
 }
 
+// ObservePaginationPage records one pagination page read.
+func (observer *recordingObserver) ObservePaginationPage(string) {}
+
 // fakeAPI exercises decorator behavior without network access.
 type fakeAPI struct {
 	calls    int
@@ -96,6 +99,23 @@ func TestInstrumentedClientEmitsBoundedLabels(t *testing.T) {
 	if len(observer.retries) != 1 ||
 		observer.retries[0] != (observedRetry{"GetCostAndUsage", "throttle"}) {
 		t.Fatalf("retry observations = %#v", observer.retries)
+	}
+}
+
+func TestInstrumentedClientReportsThrottleRequestStatus(t *testing.T) {
+	t.Parallel()
+
+	api := &fakeAPI{
+		err: &smithy.GenericAPIError{Code: "ThrottlingException", Message: "private"},
+	}
+	observer := &recordingObserver{}
+	client, err := NewInstrumented(api, config.RateLimitConfig{RequestsPerSecond: 1000, Burst: 1}, observer)
+	if err != nil {
+		t.Fatalf("NewInstrumented() error = %v", err)
+	}
+	_, _ = client.GetCostAndUsage(context.Background(), &awscostexplorer.GetCostAndUsageInput{})
+	if len(observer.requests) != 1 || observer.requests[0].status != "throttle" {
+		t.Fatalf("request observations = %#v, want throttle status", observer.requests)
 	}
 }
 

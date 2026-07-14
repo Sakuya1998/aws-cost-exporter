@@ -66,6 +66,7 @@ type RateLimitConfig struct {
 type CostExplorerConfig struct {
 	Enabled         bool             `mapstructure:"enabled" yaml:"enabled"`
 	CostMetric      string           `mapstructure:"cost_metric" yaml:"cost_metric"`
+	MaxPages        int              `mapstructure:"max_pages" yaml:"max_pages"`
 	RefreshInterval time.Duration    `mapstructure:"refresh_interval" yaml:"refresh_interval"`
 	StartupRefresh  bool             `mapstructure:"startup_refresh" yaml:"startup_refresh"`
 	JitterRatio     float64          `mapstructure:"jitter_ratio" yaml:"jitter_ratio"`
@@ -144,7 +145,7 @@ func Default() Config {
 			RateLimit: RateLimitConfig{RequestsPerSecond: 0.5, Burst: 1},
 		},
 		CostExplorer: CostExplorerConfig{
-			Enabled: true, CostMetric: "UnblendedCost",
+			Enabled: true, CostMetric: "UnblendedCost", MaxPages: 50,
 			RefreshInterval: 6 * time.Hour, StartupRefresh: true,
 			JitterRatio: 0.10,
 			Forecast:    ForecastConfig{Enabled: true, PredictionInterval: 80},

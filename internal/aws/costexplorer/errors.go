@@ -77,8 +77,7 @@ func ClassifyError(err error) *ClassifiedError {
 		return classified
 	}
 	switch code := strings.ToLower(apiError.ErrorCode()); {
-	case strings.Contains(code, "thrott") || code == "limitexceededexception" ||
-		code == "toomanyrequestsexception" || code == "requestlimitexceeded":
+	case isThrottleCode(code):
 		classified.kind, classified.retryable = ErrorThrottle, true
 	case strings.Contains(code, "accessdenied") || strings.Contains(code, "unauthorized"):
 		classified.kind = ErrorAuthorization

@@ -33,6 +33,7 @@ func TestREADMEContainsDeploymentAndRuntimeContracts(t *testing.T) {
 		"ce:GetCostAndUsage", "ce:GetCostForecast",
 		"Cost Explorer API requests are billed", "not a financial reconciliation system",
 		"Never sum different `currency`", "does not call AWS during a Prometheus scrape",
+		"max_pages", "series_limit", "8 `GetCostAndUsage`",
 		"configs/aws-cost-exporter.example.yaml", "dashboards/grafana/aws-cost-exporter.json",
 		"rules/prometheus/aws-cost-exporter.rules.yaml", "docs/operations/troubleshooting.md",
 	} {
