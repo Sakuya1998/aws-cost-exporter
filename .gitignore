@@ -1,0 +1,12 @@
+# Go build artifacts.
+/aws-cost-exporter
+/aws-cost-exporter.exe
+*.test
+*.out
+/dist/
+
+# Local editor and operating-system files.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

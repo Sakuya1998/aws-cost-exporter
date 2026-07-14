@@ -1,0 +1,1 @@
+{"Version":"2012-10-17","Statement":[{"Sid":"TrustExporterRuntime","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::111122223333:role/aws-cost-exporter-runtime"},"Action":"sts:AssumeRole","Condition":{"StringEquals":{"sts:ExternalId":"replace-with-a-random-deployment-specific-value"}}}]}

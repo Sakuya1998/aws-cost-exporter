@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GOFLAGS: -mod=readonly
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Formatting and imports
+        run: |
+          test -z "$(gofmt -l .)"
+          go install golang.org/x/tools/cmd/goimports@v0.35.0
+          test -z "$(goimports -l .)"
+      - name: Vet
+        run: go vet ./...
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+      - name: Security
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@19b0bb6a272792b9afa8a6983c3e9b9a1816947f # v1.6.0
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.22.7
+          govulncheck ./...
+          gosec ./...
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["1.24.x", stable]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+      - name: Tests
+        run: >-
+          go test -count=1 -timeout=5m
+          ./cmd/... ./internal/...
+          ./test/integration/... ./test/e2e/... ./test/perf/...
+      - name: Race detector
+        run: >-
+          go test -race -count=1 -timeout=10m
+          ./cmd/... ./internal/...
+          ./test/integration/... ./test/e2e/... ./test/perf/...
+      - name: Coverage
+        if: matrix.go-version == 'stable'
+        run: |
+          go test -covermode=atomic -coverprofile=coverage.out ./cmd/... ./internal/...
+          coverage="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
+          awk -v coverage="$coverage" 'BEGIN { if (coverage < 75) { print "coverage < 75%"; exit 1 } }'
+
+  assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: stable
+          cache: true
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.21.3
+      - name: Install validators
+        run: |
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
+          go install github.com/prometheus/prometheus/cmd/promtool@v0.55.1
+          kubeconform -v
+          promtool --version
+      - name: Validate delivery assets
+        run: >-
+          go test -count=1 -timeout=5m
+          ./test/chart/... ./test/dashboard/... ./test/rules/...
+          ./test/docs/... ./test/ci/... ./test/release/...
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Verify Docker toolchain
+        run: |
+          docker version
+          docker buildx version
+      - name: Docker build, smoke, and multi-architecture checks
+        run: go test -count=1 -timeout=25m ./test/container/...

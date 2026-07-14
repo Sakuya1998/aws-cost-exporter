@@ -1,0 +1,15 @@
+serviceMonitor:
+  enabled: true
+prometheusRule:
+  enabled: true
+networkPolicy:
+  enabled: true
+  kubeletCIDRs:
+    - 10.0.0.0/8
+podDisruptionBudget:
+  enabled: true
+config:
+  data:
+    server:
+      debug:
+        enabled: false

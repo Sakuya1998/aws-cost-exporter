@@ -1,0 +1,13 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aws-cost-exporter.fullname" . }}
+  labels:
+    {{- include "aws-cost-exporter.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "aws-cost-exporter.selectorLabels" . | nindent 6 }}
+{{- end }}

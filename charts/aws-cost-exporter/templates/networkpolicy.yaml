@@ -1,0 +1,45 @@
+{{- if and .Values.networkPolicy.enabled (empty .Values.networkPolicy.kubeletCIDRs) }}
+{{- fail "networkPolicy.kubeletCIDRs must contain trusted node CIDRs when enabled" }}
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aws-cost-exporter.fullname" . }}
+  labels:
+    {{- include "aws-cost-exporter.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "aws-cost-exporter.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.monitoringNamespaceSelector | nindent 14 }}
+        {{- range .Values.networkPolicy.kubeletCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 443
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.podIdentityCIDR }}
+      ports:
+        - port: 80
+          protocol: TCP
+{{- end }}

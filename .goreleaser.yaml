@@ -1,0 +1,50 @@
+﻿version: 2
+project_name: aws-cost-exporter
+
+builds:
+  - id: aws-cost-exporter
+    main: ./cmd/aws-cost-exporter
+    binary: aws-cost-exporter
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/sakuya1998/aws-cost-exporter/internal/version.version={{.Version}}
+      - -X github.com/sakuya1998/aws-cost-exporter/internal/version.revision={{.FullCommit}}
+      - -X github.com/sakuya1998/aws-cost-exporter/internal/version.buildDate={{.Date}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - ids: [aws-cost-exporter]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - configs/*.yaml
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive
+    documents: ["${artifact}.spdx.json"]
+
+release:
+  prerelease: auto
+  draft: true
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

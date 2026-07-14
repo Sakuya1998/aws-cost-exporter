@@ -1,0 +1,89 @@
+﻿replicaCount: 1
+
+image:
+  repository: ghcr.io/sakuya1998/aws-cost-exporter
+  tag: ""
+  pullPolicy: IfNotPresent
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 2
+  periodSeconds: 5
+
+resources: {}
+
+config:
+  existingConfigMap: ""
+  data:
+    server:
+      listen_address: ":8080"
+      metrics_path: /metrics
+    log:
+      level: info
+      format: json
+    aws:
+      region: us-east-1
+
+serviceMonitor:
+  enabled: false
+  interval: 60s
+  scrapeTimeout: 15s
+  labels: {}
+prometheusRule:
+  enabled: false
+  labels: {}
+  groups:
+    - name: aws-cost-exporter
+      rules:
+        - alert: AWSCostExporterCollectorDown
+          expr: max by (collector) (aws_cost_exporter_collector_up == 0)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: AWS Cost Exporter collector is failing
+networkPolicy:
+  enabled: false
+  monitoringNamespaceSelector:
+    kubernetes.io/metadata.name: monitoring
+  kubeletCIDRs: []
+  podIdentityCIDR: 169.254.170.23/32
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1

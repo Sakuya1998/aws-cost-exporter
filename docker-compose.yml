@@ -1,0 +1,26 @@
+services:
+  aws-cost-exporter:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+        REVISION: ${REVISION:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    image: aws-cost-exporter:${VERSION:-dev}
+    # Set these to the non-root owner of ~/.aws when its files use mode 0600.
+    user: "${AWS_HOST_UID:-65532}:${AWS_HOST_GID:-65532}"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "8080:8080"
+    environment:
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+    volumes:
+      - ./configs/aws-cost-exporter.example.yaml:/etc/aws-cost-exporter/config.yaml:ro
+      - ${HOME}/.aws:/home/nonroot/.aws:ro
+    restart: unless-stopped

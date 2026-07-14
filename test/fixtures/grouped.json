@@ -1,0 +1,1 @@
+{"ResultsByTime":[{"TimePeriod":{"Start":"{{START}}","End":"{{END}}"},"Groups":[{"Keys":["{{KEY}}"],"Metrics":{"UnblendedCost":{"Amount":"{{AMOUNT}}","Unit":"USD"}}}]}]{{NEXT}}}

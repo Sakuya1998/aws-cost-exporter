@@ -1,0 +1,14 @@
+{{- if .Values.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "aws-cost-exporter.fullname" . }}
+  labels:
+    {{- include "aws-cost-exporter.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    {{- toYaml .Values.prometheusRule.groups | nindent 4 }}
+{{- end }}

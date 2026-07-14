@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  CHART: ghcr.io/${{ github.repository_owner }}/charts/aws-cost-exporter
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: stable
+          cache: true
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.21.3
+      - name: Validate SemVer tag
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +%FT%TZ)" >> "$GITHUB_ENV"
+      - name: Install pinned release tools
+        run: |
+          go install github.com/goreleaser/goreleaser/v2@v2.17.0
+          go install github.com/anchore/syft/cmd/syft@v1.46.0
+          go install github.com/sigstore/cosign/v3/cmd/cosign@v3.1.1
+          go install github.com/aquasecurity/trivy/cmd/trivy@v0.72.0
+          goreleaser --version
+          syft version
+          cosign version
+          trivy --version
+      - name: Build and scan every image platform
+        shell: bash
+        run: |
+          docker buildx create --name release-builder --driver docker-container --use
+          for platform in linux/amd64 linux/arm64; do
+            arch="${platform#*/}"
+            docker buildx build --platform "$platform" --load --tag "aws-cost-exporter:scan-$arch" \
+              --build-arg VERSION="$VERSION" --build-arg REVISION="$GITHUB_SHA" \
+              --build-arg BUILD_DATE="$BUILD_DATE" .
+            trivy image --platform "$platform" --exit-code 1 --severity HIGH,CRITICAL \
+              "aws-cost-exporter:scan-$arch"
+          done
+      - name: Authenticate registries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          echo "$GH_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Push image with provenance and SBOM
+        shell: bash
+        run: |
+          tags=(--tag "$IMAGE:$VERSION")
+          if [[ "$VERSION" != *-* ]]; then tags+=(--tag "$IMAGE:latest"); fi
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            "${tags[@]}" --build-arg VERSION="$VERSION" \
+            --build-arg REVISION="$GITHUB_SHA" --build-arg BUILD_DATE="$BUILD_DATE" \
+            --provenance=mode=max --sbom=true --push \
+            --metadata-file image-metadata.json .
+          digest="$(jq -er '.["containerimage.digest"]' image-metadata.json)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+      - name: Sign image by digest
+        run: cosign sign --yes "$IMAGE@$IMAGE_DIGEST"
+      - name: Package, push, and sign Helm chart
+        shell: bash
+        run: |
+          helm package charts/aws-cost-exporter --version "$VERSION" \
+            --app-version "$VERSION" --destination dist
+          output="$(helm push "dist/aws-cost-exporter-$VERSION.tgz" \
+            "oci://ghcr.io/${{ github.repository_owner }}/charts" 2>&1)"
+          echo "$output"
+          digest="$(awk '/^Digest: sha256:/{print $2}' <<< "$output")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          cosign sign --yes "$CHART@$digest"
+      - name: Publish draft GitHub release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: goreleaser release --clean

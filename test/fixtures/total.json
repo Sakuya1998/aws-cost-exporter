@@ -1,0 +1,1 @@
+{"ResultsByTime":[{"TimePeriod":{"Start":"{{START}}","End":"{{END}}"},"Total":{"UnblendedCost":{"Amount":"{{AMOUNT}}","Unit":"USD"}}}]}

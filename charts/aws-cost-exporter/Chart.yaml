@@ -1,0 +1,9 @@
+apiVersion: v2
+name: aws-cost-exporter
+description: Prometheus exporter for AWS cost data
+type: application
+version: 0.1.0
+appVersion: "dev"
+home: https://github.com/sakuya1998/aws-cost-exporter
+sources:
+  - https://github.com/sakuya1998/aws-cost-exporter

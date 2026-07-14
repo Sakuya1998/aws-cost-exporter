@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.vscode
+docs
+test
+configs
+*.md
+aws-cost-exporter
+aws-cost-exporter.exe
+*.test
+*.out
