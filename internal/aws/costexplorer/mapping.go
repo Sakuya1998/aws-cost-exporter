@@ -3,6 +3,7 @@ package costexplorer
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -58,7 +59,66 @@ func MapUsage(results []cetypes.ResultByTime, query ports.CostQuery, costMetric 
 			mapped = append(mapped, entry)
 		}
 	}
-	return mapped, nil
+	if query.Window != cost.WindowMonthToDate {
+		return mapped, nil
+	}
+	return aggregateMonthToDate(mapped, query.Period)
+}
+
+type aggregateKey struct {
+	kind     cost.DimensionKind
+	value    string
+	currency string
+}
+
+// aggregateMonthToDate sums daily Cost Explorer rows into one observation per
+// dimension and currency for month-to-date export.
+func aggregateMonthToDate(costs []cost.Cost, period cost.Period) ([]cost.Cost, error) {
+	if len(costs) == 0 {
+		return nil, nil
+	}
+	totals := make(map[aggregateKey]cost.Cost, len(costs))
+	for _, entry := range costs {
+		key := aggregateKey{
+			kind:     entry.Dimension.Kind(),
+			value:    entry.Dimension.Value(),
+			currency: entry.Amount.Currency(),
+		}
+		existing, exists := totals[key]
+		if !exists {
+			totals[key] = cost.Cost{
+				Window:    cost.WindowMonthToDate,
+				Period:    period,
+				Dimension: entry.Dimension,
+				Amount:    entry.Amount,
+			}
+			continue
+		}
+		sum, err := existing.Amount.Add(entry.Amount)
+		if err != nil {
+			return nil, err
+		}
+		existing.Amount = sum
+		totals[key] = existing
+	}
+	keys := make([]aggregateKey, 0, len(totals))
+	for key := range totals {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(left, right int) bool {
+		if keys[left].kind != keys[right].kind {
+			return keys[left].kind < keys[right].kind
+		}
+		if keys[left].value != keys[right].value {
+			return keys[left].value < keys[right].value
+		}
+		return keys[left].currency < keys[right].currency
+	})
+	aggregated := make([]cost.Cost, 0, len(keys))
+	for _, key := range keys {
+		aggregated = append(aggregated, totals[key])
+	}
+	return aggregated, nil
 }
 
 // mapPeriod converts an AWS date interval to an exclusive UTC domain period.

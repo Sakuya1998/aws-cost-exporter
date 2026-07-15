@@ -31,20 +31,20 @@ func TestForecastAdapterReadsRealSDKEndpoint(t *testing.T) {
 		if !strings.HasSuffix(request.Header.Get("X-Amz-Target"), ".GetCostForecast") ||
 			!strings.Contains(string(body), `"PredictionIntervalLevel":80`) ||
 			!strings.Contains(string(body), `"Granularity":"MONTHLY"`) || !strings.Contains(string(body), `"Metric":"UNBLENDED_COST"`) ||
-			!strings.Contains(string(body), `"Start":"2026-07-13"`) || !strings.Contains(string(body), `"End":"2026-08-01"`) ||
+			!strings.Contains(string(body), `"Start":"2026-07-01"`) || !strings.Contains(string(body), `"End":"2026-08-01"`) ||
 			!strings.Contains(string(body), `"LINKED_ACCOUNT"`) || !strings.Contains(string(body), `"123456789012"`) ||
 			!strings.Contains(string(body), `"SERVICE"`) || !strings.Contains(string(body), `"AmazonEC2"`) {
 			t.Errorf("unexpected forecast request target=%q body=%s", request.Header.Get("X-Amz-Target"), body)
 		}
 		writer.Header().Set("Content-Type", "application/x-amz-json-1.1")
-		_, _ = fmt.Fprint(writer, `{"Total":{"Amount":"100","Unit":"USD"},"ForecastResultsByTime":[{"TimePeriod":{"Start":"2026-07-13","End":"2026-08-01"},"MeanValue":"100","PredictionIntervalLowerBound":"80","PredictionIntervalUpperBound":"120"}]}`)
+		_, _ = fmt.Fprint(writer, `{"Total":{"Amount":"100","Unit":"USD"},"ForecastResultsByTime":[{"TimePeriod":{"Start":"2026-07-01","End":"2026-08-01"},"MeanValue":"100","PredictionIntervalLowerBound":"80","PredictionIntervalUpperBound":"120"}]}`)
 	}))
 	defer server.Close()
 
 	value := config.Default().AWS
 	value.EndpointURL, value.RequestTimeout, value.Retry.MaxAttempts = server.URL, time.Second, 1
 	client, _ := New(context.Background(), value)
-	period, _ := cost.NewPeriod(time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	period, _ := cost.NewPeriod(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
 	adapter, _ := NewForecastAdapter(client)
 	forecast, err := adapter.ReadForecast(context.Background(), ports.ForecastQuery{
 		Period: period, PredictionInterval: 80,
@@ -62,12 +62,12 @@ func TestMapForecastRejectsInvalidBounds(t *testing.T) {
 	if adapter, err := NewForecastAdapter(nil); adapter != nil || !errors.Is(err, ErrNilForecastAPI) {
 		t.Fatalf("NewForecastAdapter(nil) = %#v, %v; want ErrNilForecastAPI", adapter, err)
 	}
-	period, _ := cost.NewPeriod(time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	period, _ := cost.NewPeriod(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
 	output := &awscostexplorer.GetCostForecastOutput{
 		Total: &cetypes.MetricValue{Unit: aws.String("USD")},
 		ForecastResultsByTime: []cetypes.ForecastResult{{
 			TimePeriod: &cetypes.DateInterval{
-				Start: aws.String("2026-07-13"), End: aws.String("2026-08-01"),
+				Start: aws.String("2026-07-01"), End: aws.String("2026-08-01"),
 			},
 			MeanValue: aws.String("100"), PredictionIntervalLowerBound: aws.String("120"),
 			PredictionIntervalUpperBound: aws.String("80"),

@@ -61,6 +61,55 @@ func TestParseMoneyParsesCostExplorerDecimal(t *testing.T) {
 	}
 }
 
+// TestMoneyAddSumsSameCurrency verifies month-to-date aggregation can combine
+// daily amounts without changing the currency unit.
+func TestMoneyAddSumsSameCurrency(t *testing.T) {
+	t.Parallel()
+
+	left, err := cost.NewMoney(10.5, "USD")
+	if err != nil {
+		t.Fatalf("NewMoney(left) error = %v", err)
+	}
+	right, err := cost.NewMoney(20.25, "USD")
+	if err != nil {
+		t.Fatalf("NewMoney(right) error = %v", err)
+	}
+	sum, err := left.Add(right)
+	if err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	if got := sum.Amount(); got != 30.75 {
+		t.Fatalf("Amount() = %v, want 30.75", got)
+	}
+	if got := sum.Currency(); got != "USD" {
+		t.Fatalf("Currency() = %q, want USD", got)
+	}
+}
+
+// TestMoneyAddRejectsMismatchedCurrency verifies cross-currency sums are
+// rejected before they reach snapshots or Prometheus export.
+func TestMoneyAddRejectsMismatchedCurrency(t *testing.T) {
+	t.Parallel()
+
+	left, _ := cost.NewMoney(1, "USD")
+	right, _ := cost.NewMoney(1, "EUR")
+	if _, err := left.Add(right); !errors.Is(err, cost.ErrMismatchedCurrency) {
+		t.Fatalf("Add() error = %v, want ErrMismatchedCurrency", err)
+	}
+}
+
+// TestMoneyAddRejectsNonFiniteSum verifies overflow to non-finite values is
+// rejected like direct construction.
+func TestMoneyAddRejectsNonFiniteSum(t *testing.T) {
+	t.Parallel()
+
+	left, _ := cost.NewMoney(math.MaxFloat64, "USD")
+	right, _ := cost.NewMoney(math.MaxFloat64, "USD")
+	if _, err := left.Add(right); !errors.Is(err, cost.ErrInvalidAmount) {
+		t.Fatalf("Add() error = %v, want ErrInvalidAmount", err)
+	}
+}
+
 // TestParseMoneyRejectsInvalidDecimal verifies malformed AWS amounts do not
 // reach snapshots.
 func TestParseMoneyRejectsInvalidDecimal(t *testing.T) {

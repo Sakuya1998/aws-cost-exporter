@@ -14,6 +14,8 @@ var (
 	ErrInvalidAmount = errors.New("invalid monetary amount")
 	// ErrEmptyCurrency indicates an amount has no currency unit.
 	ErrEmptyCurrency = errors.New("currency must not be empty")
+	// ErrMismatchedCurrency indicates two amounts use different units.
+	ErrMismatchedCurrency = errors.New("currency mismatch")
 )
 
 // Money is a finite amount associated with a currency.
@@ -54,4 +56,16 @@ func (money Money) Amount() float64 {
 // Currency returns the monetary unit reported by AWS.
 func (money Money) Currency() string {
 	return money.currency
+}
+
+// Add returns the sum of two amounts in the same currency.
+func (money Money) Add(other Money) (Money, error) {
+	if money.currency != other.currency {
+		return Money{}, ErrMismatchedCurrency
+	}
+	sum := money.amount + other.amount
+	if math.IsNaN(sum) || math.IsInf(sum, 0) {
+		return Money{}, ErrInvalidAmount
+	}
+	return Money{amount: sum, currency: money.currency}, nil
 }

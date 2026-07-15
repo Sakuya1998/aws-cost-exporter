@@ -48,6 +48,29 @@ func TestUsageAdapterSerializesQueriesAndMapsCompletePages(t *testing.T) {
 	}
 }
 
+func TestUsageAdapterAggregatesMTDAcrossDailyRows(t *testing.T) {
+	api := &multiDayUsageAPI{}
+	subject, err := NewUsageAdapter(api, 50, metricUnblendedCost, nil)
+	if err != nil {
+		t.Fatalf("NewUsageAdapter() error = %v", err)
+	}
+	period, _ := cost.NewPeriod(
+		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 4, 0, 0, 0, 0, time.UTC),
+	)
+	query := ports.CostQuery{
+		Period: period, Window: cost.WindowMonthToDate, GroupBy: cost.DimensionService,
+	}
+	values, err := subject.ReadCosts(context.Background(), query)
+	if err != nil {
+		t.Fatalf("ReadCosts() error = %v", err)
+	}
+	if len(values) != 1 || values[0].Dimension.Value() != "Amazon EC2" ||
+		values[0].Amount.Amount() != 6 {
+		t.Fatalf("ReadCosts() = %#v, want one aggregated 6 USD EC2 MTD cost", values)
+	}
+}
+
 // TestUsageAdapterRejectsPartialFailuresAndInvalidQueries verifies boundaries.
 func TestUsageAdapterRejectsPartialFailuresAndInvalidQueries(t *testing.T) {
 	if adapter, err := NewUsageAdapter(nil, 50, metricUnblendedCost, nil); adapter != nil || !errors.Is(err, ErrNilUsageAPI) {
@@ -92,6 +115,47 @@ func (api *usageAPI) GetCostAndUsage(_ context.Context, input *awscostexplorer.G
 			},
 		}},
 	}}}, nil
+}
+
+type multiDayUsageAPI struct {
+	input *awscostexplorer.GetCostAndUsageInput
+}
+
+func (api *multiDayUsageAPI) GetCostAndUsage(_ context.Context, input *awscostexplorer.GetCostAndUsageInput, _ ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostAndUsageOutput, error) {
+	api.input = input
+	return &awscostexplorer.GetCostAndUsageOutput{ResultsByTime: []cetypes.ResultByTime{
+		{
+			TimePeriod: &cetypes.DateInterval{Start: aws.String("2026-07-01"), End: aws.String("2026-07-02")},
+			Groups: []cetypes.Group{{
+				Keys: []string{"Amazon EC2"},
+				Metrics: map[string]cetypes.MetricValue{
+					"UnblendedCost": {Amount: aws.String("1"), Unit: aws.String("USD")},
+				},
+			}},
+		},
+		{
+			TimePeriod: &cetypes.DateInterval{Start: aws.String("2026-07-02"), End: aws.String("2026-07-03")},
+			Groups: []cetypes.Group{{
+				Keys: []string{"Amazon EC2"},
+				Metrics: map[string]cetypes.MetricValue{
+					"UnblendedCost": {Amount: aws.String("2"), Unit: aws.String("USD")},
+				},
+			}},
+		},
+		{
+			TimePeriod: &cetypes.DateInterval{Start: aws.String("2026-07-03"), End: aws.String("2026-07-04")},
+			Groups: []cetypes.Group{{
+				Keys: []string{"Amazon EC2"},
+				Metrics: map[string]cetypes.MetricValue{
+					"UnblendedCost": {Amount: aws.String("3"), Unit: aws.String("USD")},
+				},
+			}},
+		},
+	}}, nil
+}
+
+func (*multiDayUsageAPI) GetCostForecast(context.Context, *awscostexplorer.GetCostForecastInput, ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostForecastOutput, error) {
+	return nil, nil
 }
 
 func (*usageAPI) GetCostForecast(context.Context, *awscostexplorer.GetCostForecastInput, ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostForecastOutput, error) {

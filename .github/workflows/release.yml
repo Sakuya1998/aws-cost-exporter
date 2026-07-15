@@ -39,7 +39,9 @@ jobs:
           go install github.com/goreleaser/goreleaser/v2@v2.17.0
           go install github.com/anchore/syft/cmd/syft@v1.46.0
           go install github.com/sigstore/cosign/v3/cmd/cosign@v3.1.1
-          go install github.com/aquasecurity/trivy/cmd/trivy@v0.72.0
+          # Install Trivy prebuilt binary to avoid building from source on the runner
+          TRIVY_VERSION=v0.72.0
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${TRIVY_VERSION}
           goreleaser --version
           syft version
           cosign version

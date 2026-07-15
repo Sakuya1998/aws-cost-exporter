@@ -19,7 +19,7 @@ log:
 
 aws:
   region: us-east-1
-  profile: ""
+  profile: "default"
   endpoint_url: ""
   request_timeout: 30s
   retry:

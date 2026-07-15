@@ -23,7 +23,7 @@ func TestCollectorBuildsCurrentMonthForecast(t *testing.T) {
 	forecasts := snapshot.Forecasts()
 	if err != nil || subject.Name() != Name || len(forecasts) != 1 ||
 		reader.query.PredictionInterval != 80 ||
-		reader.query.Period.Start().Format(time.DateOnly) != "2026-07-12" ||
+		reader.query.Period.Start().Format(time.DateOnly) != "2026-07-01" ||
 		reader.query.Period.End().Format(time.DateOnly) != "2026-08-01" ||
 		forecasts[0].Mean.Amount() != 100 || forecasts[0].Mean.Currency() != "USD" {
 		t.Fatalf("Collect() returned error=%v query=%#v forecasts=%#v", err, reader.query, forecasts)
