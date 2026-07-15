@@ -66,6 +66,7 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 		`CHART=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts/aws-cost-exporter`,
 		"linux/amd64,linux/arm64",
 		"--provenance=mode=max", "--sbom=true", "containerimage.digest",
+		`metadata_file="$RUNNER_TEMP/image-metadata.json"`, `--metadata-file "$metadata_file"`,
 		"trivy image", "cosign sign --yes", "helm package", "helm push",
 		"charts/aws-cost-exporter", "GITHUB_REF_NAME", "!= *-*",
 		`'.["containerimage.digest"]'`, `--app-version "$VERSION"`, `"oci://$CHART_REPOSITORY"`,
@@ -75,7 +76,9 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 			t.Errorf("release workflow lacks %q", fragment)
 		}
 	}
-	for _, forbidden := range []string{"security-events: write", "actions: write"} {
+	for _, forbidden := range []string{
+		"security-events: write", "actions: write", "--metadata-file image-metadata.json",
+	} {
 		if strings.Contains(content, forbidden) {
 			t.Errorf("release workflow grants unnecessary permission %q", forbidden)
 		}

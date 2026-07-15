@@ -68,12 +68,13 @@ jobs:
         run: |
           tags=(--tag "$IMAGE:$VERSION")
           if [[ "$VERSION" != *-* ]]; then tags+=(--tag "$IMAGE:latest"); fi
+          metadata_file="$RUNNER_TEMP/image-metadata.json"
           docker buildx build --platform linux/amd64,linux/arm64 \
             "${tags[@]}" --build-arg VERSION="$VERSION" \
             --build-arg REVISION="$GITHUB_SHA" --build-arg BUILD_DATE="$BUILD_DATE" \
             --provenance=mode=max --sbom=true --push \
-            --metadata-file image-metadata.json .
-          digest="$(jq -er '.["containerimage.digest"]' image-metadata.json)"
+            --metadata-file "$metadata_file" .
+          digest="$(jq -er '.["containerimage.digest"]' "$metadata_file")"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
       - name: Sign image by digest
