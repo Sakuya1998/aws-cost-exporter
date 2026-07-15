@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +55,36 @@ func TestRunServicesTimesOutWaitingForScheduler(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
+			t.Fatalf("RunServices() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunServices did not return before test timeout")
+	}
+}
+
+func TestRunServicesTimesOutWhenServerExitsFirst(t *testing.T) {
+	value := config.Default()
+	value.Server.ShutdownTimeout = 50 * time.Millisecond
+	server, err := httpserver.New(value.Server, prometheus.NewRegistry(), staticReader{}, []string{"total"}, version.Info{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	done := make(chan error, 1)
+	go func() {
+		done <- app.RunServices(context.Background(), blockingScheduler{}, server, listener, value.Server.ShutdownTimeout, logger)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil && !strings.Contains(err.Error(), "closed network connection") {
 			t.Fatalf("RunServices() error = %v", err)
 		}
 	case <-time.After(time.Second):

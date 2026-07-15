@@ -153,6 +153,12 @@ func TestRunnerObservesCanceledAttempts(t *testing.T) {
 		t.Fatalf("refresh event = %#v, want canceled", event)
 	}
 	receive(t, done)
+	subject.runningMu.Lock()
+	_, running := subject.running["total"]
+	subject.runningMu.Unlock()
+	if running {
+		t.Fatal("running flag not cleared after worker shutdown")
+	}
 }
 
 type fakeCollector struct {

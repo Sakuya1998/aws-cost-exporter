@@ -1,0 +1,47 @@
+name: Bug report
+description: Report unexpected behavior in AWS Cost Exporter
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag, image tag, or commit SHA
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Redacted config snippet (collectors, filters, limits, refresh interval)
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, including AWS account characteristics if relevant
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and metrics
+      description: Exporter logs, `/ready` body, and relevant Prometheus metrics
+      render: shell

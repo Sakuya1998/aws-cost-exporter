@@ -58,18 +58,15 @@ func (collector *Collector) Collect(
 	ctx context.Context,
 	reference time.Time,
 ) (cost.PartialSnapshot, error) {
-	day := cost.DayContaining(reference)
-	month := cost.MonthContaining(reference)
-	monthToDate, err := cost.NewPeriod(month.Start(), day.End())
+	queries, err := basecollector.BuildDailyAndMTDQueries(reference, cost.DimensionRegion)
 	if err != nil {
-		return cost.PartialSnapshot{}, fmt.Errorf("build month-to-date period: %w", err)
-	}
-	queries := []ports.CostQuery{
-		{Period: day, Window: cost.WindowDaily, GroupBy: cost.DimensionRegion},
-		{Period: monthToDate, Window: cost.WindowMonthToDate, GroupBy: cost.DimensionRegion},
+		return cost.PartialSnapshot{}, err
 	}
 	var collected []cost.Cost
 	for _, query := range queries {
+		if err := ctx.Err(); err != nil {
+			return cost.PartialSnapshot{}, err
+		}
 		values, err := collector.reader.ReadCosts(ctx, query)
 		if err != nil {
 			return cost.PartialSnapshot{}, fmt.Errorf("collect %s region cost: %w", query.Window, err)

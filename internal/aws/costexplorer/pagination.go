@@ -17,6 +17,8 @@ var (
 	ErrInvalidPage = errors.New("invalid Cost Explorer page")
 	// ErrPageLimitExceeded indicates pagination exceeded the configured page budget.
 	ErrPageLimitExceeded = errors.New("Cost Explorer page limit exceeded")
+	// ErrInvalidPageLimit indicates a non-positive pagination limit.
+	ErrInvalidPageLimit = errors.New("Cost Explorer page limit must be positive")
 )
 
 // UsagePaginator retrieves complete GetCostAndUsage result sets.
@@ -27,14 +29,14 @@ type UsagePaginator struct {
 }
 
 // NewUsagePaginator constructs an all-or-nothing usage paginator.
-func NewUsagePaginator(api API, maxPages int, observer Observer) *UsagePaginator {
+func NewUsagePaginator(api API, maxPages int, observer Observer) (*UsagePaginator, error) {
 	if maxPages <= 0 {
-		maxPages = 1
+		return nil, fmt.Errorf("%w: got %d", ErrInvalidPageLimit, maxPages)
 	}
 	if observer == nil {
 		observer = discardObserver{}
 	}
-	return &UsagePaginator{api: api, maxPages: maxPages, observer: observer}
+	return &UsagePaginator{api: api, maxPages: maxPages, observer: observer}, nil
 }
 
 // Read retrieves every page without mutating the caller's input.

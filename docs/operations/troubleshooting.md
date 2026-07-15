@@ -17,7 +17,10 @@ throttling or 5xx responses, inspect `aws_cost_exporter_aws_api_requests_total`
 (including `status="throttle"`), `aws_cost_exporter_aws_api_retries_total`,
 and `aws_cost_exporter_pagination_pages_total`. The SDK retries throttled
 requests before the scheduler applies failure backoff and may rerun the entire
-collector refresh.
+collector refresh. `pagination_pages_total` counts page reads per query;
+`aws_api_requests_total` counts each HTTP attempt including SDK retries. When
+both spike, reduce refresh frequency, tighten filters, or lower `max_pages`
+before raising rate limits.
 
 ## Unexpected cost data
 

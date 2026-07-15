@@ -78,6 +78,7 @@ func BenchmarkMetricsExposition1000Series(b *testing.B) {
 	}
 }
 
+// Assumes unpaginated responses (1 page per query). Paginated deployments exceed 8+1.
 func TestStartupRefreshMatchesQueryPaginationBudget(t *testing.T) {
 	var usage, forecast atomic.Int32
 	baseURL := runPerfExporter(t, budgetHandler(t, &usage, &forecast), true)

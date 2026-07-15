@@ -34,6 +34,8 @@ func TestREADMEContainsDeploymentAndRuntimeContracts(t *testing.T) {
 		"Cost Explorer API requests are billed", "not a financial reconciliation system",
 		"Never sum different `currency`", "does not call AWS during a Prometheus scrape",
 		"max_pages", "series_limit", "8 `GetCostAndUsage`",
+		"AWSCostExplorerPaginationSpike", "AWSCostExplorerThrottleSustained",
+		"pagination_pages_total", "Apache License", "LICENSE",
 		"configs/aws-cost-exporter.example.yaml", "dashboards/grafana/aws-cost-exporter.json",
 		"rules/prometheus/aws-cost-exporter.rules.yaml", "docs/operations/troubleshooting.md",
 	} {
@@ -67,6 +69,7 @@ func TestTroubleshootingCoversOperationalFailureModes(t *testing.T) {
 	for _, fragment := range []string{
 		"/ready", "`missing`", "`stale`", "collector_up", "cache_age_seconds",
 		"403", "Cost Explorer", "throttling", "aws_api_requests_total",
+		"pagination_pages_total", "SDK retries",
 		"`__other__`", "dimension_overflow_values_total", "backfill",
 		"currency", "today through month end", "replica", "debug",
 	} {

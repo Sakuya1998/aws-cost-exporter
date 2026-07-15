@@ -155,7 +155,7 @@ func RunServices(
 	select {
 	case err := <-serverDone:
 		cancel()
-		<-schedulerDone
+		waitForScheduler(runner, schedulerDone, schedulerShutdownTimeout, logger)
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}

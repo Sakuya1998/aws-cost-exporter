@@ -109,6 +109,101 @@ func TestBinaryReadinessMetricsDebugAndTermination(t *testing.T) {
 	awaitUnavailable(t, baseURL+"/healthz")
 }
 
+func TestBinaryPublishesServiceAndTotalMetrics(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "e2e-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "e2e-secret-key")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	fakeAWS := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !strings.HasSuffix(request.Header.Get("X-Amz-Target"), ".GetCostAndUsage") {
+			t.Errorf("unexpected AWS target %q", request.Header.Get("X-Amz-Target"))
+		}
+		var input struct {
+			TimePeriod struct{ Start, End string }
+			GroupBy    []struct{ Key string }
+		}
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		<-release
+		fixture := "total.json"
+		replacements := map[string]string{
+			"START": input.TimePeriod.Start, "END": input.TimePeriod.End,
+		}
+		if len(input.GroupBy) > 0 {
+			fixture = "grouped.json"
+			replacements["KEY"] = "Amazon EC2"
+			replacements["AMOUNT"] = "5"
+			replacements["NEXT"] = ""
+		} else {
+			replacements["AMOUNT"] = "11"
+		}
+		template, err := os.ReadFile(filepath.Join("..", "fixtures", fixture))
+		if err != nil {
+			t.Errorf("read response fixture: %v", err)
+			return
+		}
+		body := string(template)
+		for key, value := range replacements {
+			body = strings.ReplaceAll(body, "{{"+key+"}}", value)
+		}
+		writer.Header().Set("Content-Type", "application/x-amz-json-1.1")
+		_, _ = fmt.Fprint(writer, body)
+	}))
+	t.Cleanup(fakeAWS.Close)
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+
+	address := freeAddress(t)
+	configPath := writeMultiCollectorConfig(t, address, fakeAWS.URL)
+	binary := buildBinary(t)
+	logFile, err := os.Create(filepath.Join(t.TempDir(), "exporter.log"))
+	if err != nil {
+		t.Fatalf("create process log: %v", err)
+	}
+	t.Cleanup(func() { _ = logFile.Close() })
+	command := exec.Command(binary, "--config", configPath)
+	command.Env, command.Stdout, command.Stderr = cleanExporterEnv(), logFile, logFile
+	if err := command.Start(); err != nil {
+		t.Fatalf("start binary: %v", err)
+	}
+	result, stopped := make(chan error, 1), false
+	go func() { result <- command.Wait() }()
+	t.Cleanup(func() {
+		if !stopped {
+			_, _ = terminateProcess(command.Process)
+			<-result
+		}
+	})
+
+	baseURL := "http://" + address
+	releaseOnce.Do(func() { close(release) })
+	awaitStatus(t, baseURL+"/ready", http.StatusOK)
+	metrics := fetch(t, baseURL+"/metrics")
+	for _, fragment := range []string{
+		"aws_cost_daily_amount{currency=\"USD\"} 11",
+		"aws_cost_service_daily_amount{aws_service=\"Amazon EC2\",currency=\"USD\"} 5",
+	} {
+		if !strings.Contains(metrics, fragment) {
+			t.Fatalf("metrics missing %q\n%s", fragment, metrics)
+		}
+	}
+
+	graceful, err := terminateProcess(command.Process)
+	if err != nil {
+		t.Fatalf("terminate binary: %v", err)
+	}
+	select {
+	case err := <-result:
+		stopped = true
+		if graceful && err != nil {
+			t.Fatalf("SIGTERM exit: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("binary did not exit")
+	}
+}
+
 func cleanExporterEnv() []string {
 	result := make([]string, 0, len(os.Environ()))
 	for _, value := range os.Environ() {
@@ -147,7 +242,7 @@ aws:
     base_delay: 1ms
     max_backoff: 5ms
   rate_limit:
-    requests_per_second: 1000
+    requests_per_second: 1
     burst: 10
 cost_explorer:
   startup_refresh: true
@@ -157,6 +252,47 @@ cost_explorer:
   collectors:
     total: true
     service: false
+    region: false
+    account: false
+telemetry:
+  include_go_collector: false
+  include_process_collector: false
+scheduler:
+  failure_backoff:
+    initial: 10ms
+    max: 50ms
+    multiplier: 2
+`, address, endpoint)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return path
+}
+
+func writeMultiCollectorConfig(t *testing.T, address, endpoint string) string {
+	t.Helper()
+	content := fmt.Sprintf(`server:
+  listen_address: %q
+  shutdown_timeout: 1s
+aws:
+  endpoint_url: %q
+  request_timeout: 5s
+  retry:
+    max_attempts: 1
+    base_delay: 1ms
+    max_backoff: 5ms
+  rate_limit:
+    requests_per_second: 1
+    burst: 10
+cost_explorer:
+  startup_refresh: true
+  jitter_ratio: 0
+  forecast:
+    enabled: false
+  collectors:
+    total: true
+    service: true
     region: false
     account: false
 telemetry:

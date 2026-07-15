@@ -149,6 +149,7 @@ func (runner *Runner) dispatch(reference time.Time) {
 func (runner *Runner) worker(ctx context.Context, instance Collector) {
 	name := instance.Name()
 	defer runner.workers.Done()
+	defer runner.clearRunning(name)
 	for {
 		select {
 		case reference := <-runner.jobs[name]:
@@ -228,4 +229,10 @@ func (runner *Runner) nextBackoff(delay time.Duration) time.Duration {
 		return runner.config.Backoff.Max
 	}
 	return time.Duration(next)
+}
+
+func (runner *Runner) clearRunning(name string) {
+	runner.runningMu.Lock()
+	delete(runner.running, name)
+	runner.runningMu.Unlock()
 }

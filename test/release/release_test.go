@@ -93,6 +93,7 @@ func TestV01ChecklistCoversReleaseGates(t *testing.T) {
 	for _, fragment := range []string{
 		"# v0.1.0 release checklist", "./test/perf/...", "./test/release/...",
 		"race", "does not call AWS", "8 `GetCostAndUsage` + 1 `GetCostForecast`",
+		"perf API-budget gate (8+1) does not apply", "pagination_pages_total",
 		"series_limit=1000", "15s", "cosign verify", "Trivy", "ROADMAP.md", "arm64",
 	} {
 		if !strings.Contains(content, fragment) {

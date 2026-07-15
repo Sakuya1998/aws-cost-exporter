@@ -27,6 +27,25 @@ groups:
           summary: AWS Cost Exporter collector {{ $labels.collector }} is down
           description: Collector {{ $labels.collector }} on {{ $labels.instance }} has been down continuously for 30 minutes.
 
+      # Tune the threshold for large accounts with heavy pagination.
+      - alert: AWSCostExplorerPaginationSpike
+        expr: sum by (job, instance) (rate(aws_cost_exporter_pagination_pages_total[1h])) > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Cost Explorer pagination rate is unusually high
+          description: Pagination page reads on {{ $labels.instance }} exceed the deployment threshold. Review filters, max_pages, and account size.
+
+      - alert: AWSCostExplorerThrottleSustained
+        expr: sum by (job, instance) (rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Cost Explorer throttling is sustained
+          description: Throttled Cost Explorer requests on {{ $labels.instance }} indicate quota pressure or overly aggressive refresh settings.
+
       - alert: AWSDailyCostSpike
         expr: aws_cost_daily_amount > 1.5 * avg_over_time(aws_cost_daily_amount[7d])
         for: 2h

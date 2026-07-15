@@ -21,6 +21,14 @@ multiplies usage: `collectors × 2 × pages + forecast`. Use
 `cost_explorer.filters.services` or `cost_explorer.filters.regions` on large
 accounts to reduce pages before collection.
 `cost_explorer.max_pages` (default 50) hard-stops each paginated query.
+Tune example alerts in `rules/prometheus/aws-cost-exporter.rules.yaml`:
+`AWSCostExplorerPaginationSpike` uses
+`sum by (job, instance) (rate(aws_cost_exporter_pagination_pages_total[1h]))`
+and `AWSCostExplorerThrottleSustained` uses
+`rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])`.
+Per refresh, estimate Cost Explorer calls as
+`collectors × 2 × pages + forecast` (for example 4 pages with total+service
+enabled ≈ 16 `GetCostAndUsage` plus forecast when enabled).
 `cost_explorer.dimensions.series_limit` caps Prometheus export series only; it
 does not limit Cost Explorer requests. Service, region, and account families
 honor `series_limit`; `total` and forecast metrics expand naturally by
@@ -170,3 +178,8 @@ age and readiness. Old snapshots remain available from `/metrics`.
 - Troubleshooting: `docs/operations/troubleshooting.md`
 - Security reporting: [SECURITY.md](SECURITY.md)
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## License
+
+Copyright 2026 sakuya1998. Licensed under the Apache License, Version 2.0;
+see [LICENSE](LICENSE) or https://www.apache.org/licenses/LICENSE-2.0.

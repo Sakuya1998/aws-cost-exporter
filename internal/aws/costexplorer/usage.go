@@ -27,7 +27,11 @@ func NewUsageAdapter(api API, maxPages int, observer Observer) (*UsageAdapter, e
 	if api == nil {
 		return nil, ErrNilUsageAPI
 	}
-	return &UsageAdapter{paginator: NewUsagePaginator(api, maxPages, observer)}, nil
+	paginator, err := NewUsagePaginator(api, maxPages, observer)
+	if err != nil {
+		return nil, err
+	}
+	return &UsageAdapter{paginator: paginator}, nil
 }
 
 // ReadCosts serializes a domain query, reads every page, and maps the result.
