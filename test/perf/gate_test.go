@@ -212,9 +212,10 @@ func budgetHandler(t *testing.T, usage, forecast *atomic.Int32) http.HandlerFunc
 			return
 		}
 		key := "AmazonEC2"
-		if input.GroupBy[0].Key == "LINKED_ACCOUNT" {
+		switch input.GroupBy[0].Key {
+		case "LINKED_ACCOUNT":
 			key = "123456789012"
-		} else if input.GroupBy[0].Key == "REGION" {
+		case "REGION":
 			key = "us-east-1"
 		}
 		writePerfFixture(t, writer, "grouped.json", map[string]string{"START": input.TimePeriod.Start, "END": input.TimePeriod.End, "KEY": key, "AMOUNT": "1", "NEXT": ""})

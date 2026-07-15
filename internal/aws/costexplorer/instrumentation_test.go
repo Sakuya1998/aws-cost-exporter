@@ -3,6 +3,7 @@ package costexplorer
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,9 +41,11 @@ func (observer *recordingObserver) ObservePaginationPage(string) {}
 
 // fakeAPI exercises decorator behavior without network access.
 type fakeAPI struct {
-	calls    int
-	err      error
-	retryErr error
+	calls        int
+	attempts     int
+	attemptCount int
+	err          error
+	retryErr     error
 }
 
 // GetCostAndUsage applies operation options and returns the configured result.
@@ -56,19 +59,44 @@ func (api *fakeAPI) GetCostAndUsage(
 	for _, option := range options {
 		option(&value)
 	}
-	if api.retryErr != nil {
-		_, _ = value.Retryer.GetRetryToken(ctx, api.retryErr)
+	attemptCount := max(1, api.attemptCount)
+	for attempt := 0; attempt < attemptCount; attempt++ {
+		release, err := value.Retryer.(aws.RetryerV2).GetAttemptToken(ctx)
+		if err != nil {
+			return nil, err
+		}
+		api.attempts++
+		if release != nil {
+			_ = release(nil)
+		}
+		if api.retryErr != nil && attempt+1 < attemptCount {
+			if _, err := value.Retryer.GetRetryToken(ctx, api.retryErr); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return &awscostexplorer.GetCostAndUsageOutput{}, api.err
 }
 
 // GetCostForecast returns the configured result.
 func (api *fakeAPI) GetCostForecast(
-	context.Context,
-	*awscostexplorer.GetCostForecastInput,
-	...func(*awscostexplorer.Options),
+	ctx context.Context,
+	_ *awscostexplorer.GetCostForecastInput,
+	options ...func(*awscostexplorer.Options),
 ) (*awscostexplorer.GetCostForecastOutput, error) {
 	api.calls++
+	value := awscostexplorer.Options{Retryer: aws.NopRetryer{}}
+	for _, option := range options {
+		option(&value)
+	}
+	release, err := value.Retryer.(aws.RetryerV2).GetAttemptToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	api.attempts++
+	if release != nil {
+		_ = release(nil)
+	}
 	return &awscostexplorer.GetCostForecastOutput{}, api.err
 }
 
@@ -78,14 +106,15 @@ func TestInstrumentedClientEmitsBoundedLabels(t *testing.T) {
 	t.Parallel()
 
 	api := &fakeAPI{
-		err: errors.New("private failure detail"),
+		attemptCount: 2,
+		err:          errors.New("private failure detail"),
 		retryErr: &smithy.GenericAPIError{
 			Code: "LimitExceededException", Message: "private retry detail",
 		},
 	}
 	observer := &recordingObserver{}
 	client, err := NewInstrumented(api, config.RateLimitConfig{
-		RequestsPerSecond: 1000, Burst: 1,
+		RequestsPerSecond: 1, Burst: 5,
 	}, observer)
 	if err != nil {
 		t.Fatalf("NewInstrumented() returned an unexpected error: %v", err)
@@ -96,7 +125,7 @@ func TestInstrumentedClientEmitsBoundedLabels(t *testing.T) {
 		observer.requests[0] != (observedRequest{"GetCostAndUsage", "error"}) {
 		t.Fatalf("request observations = %#v", observer.requests)
 	}
-	if len(observer.retries) != 1 ||
+	if api.attempts != 2 || len(observer.retries) != 1 ||
 		observer.retries[0] != (observedRetry{"GetCostAndUsage", "throttle"}) {
 		t.Fatalf("retry observations = %#v", observer.retries)
 	}
@@ -109,7 +138,7 @@ func TestInstrumentedClientReportsThrottleRequestStatus(t *testing.T) {
 		err: &smithy.GenericAPIError{Code: "ThrottlingException", Message: "private"},
 	}
 	observer := &recordingObserver{}
-	client, err := NewInstrumented(api, config.RateLimitConfig{RequestsPerSecond: 1000, Burst: 1}, observer)
+	client, err := NewInstrumented(api, config.RateLimitConfig{RequestsPerSecond: 1, Burst: 5}, observer)
 	if err != nil {
 		t.Fatalf("NewInstrumented() error = %v", err)
 	}
@@ -139,7 +168,72 @@ func TestInstrumentedClientHonorsCancellationBeforeAPICall(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("GetCostAndUsage() error = %v, want context.Canceled", err)
 	}
-	if api.calls != 1 {
-		t.Fatalf("API calls = %d, want 1", api.calls)
+	if api.calls != 2 || api.attempts != 1 {
+		t.Fatalf("logical calls=%d attempts=%d, want 2 logical calls and 1 attempt", api.calls, api.attempts)
+	}
+}
+
+type countingLimiter struct {
+	calls int
+	err   error
+}
+
+func (limiter *countingLimiter) Wait(context.Context) error {
+	limiter.calls++
+	return limiter.err
+}
+
+type failingAttemptRetryer struct{ aws.NopRetryer }
+
+func (failingAttemptRetryer) GetAttemptToken(context.Context) (func(error) error, error) {
+	return nil, errors.New("underlying attempt token failure")
+}
+
+func TestInstrumentedClientLimitsEveryAttempt(t *testing.T) {
+	t.Parallel()
+
+	api := &fakeAPI{attemptCount: 3, retryErr: errors.New("retry")}
+	limiter := &countingLimiter{}
+	client, err := newInstrumentedClient(api, limiter, &recordingObserver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetCostAndUsage(context.Background(), &awscostexplorer.GetCostAndUsageInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if limiter.calls != 3 || api.attempts != 3 {
+		t.Fatalf("limiter calls=%d attempts=%d, want 3 each", limiter.calls, api.attempts)
+	}
+}
+
+func TestInstrumentedClientLimitsForecastAttempt(t *testing.T) {
+	t.Parallel()
+
+	api, limiter := &fakeAPI{}, &countingLimiter{}
+	client, err := newInstrumentedClient(api, limiter, &recordingObserver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetCostForecast(context.Background(), &awscostexplorer.GetCostForecastInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if limiter.calls != 1 || api.attempts != 1 {
+		t.Fatalf("limiter calls=%d attempts=%d, want 1 each", limiter.calls, api.attempts)
+	}
+}
+
+func TestRetryObserverReturnsLimiterAndUnderlyingTokenFailures(t *testing.T) {
+	t.Parallel()
+
+	limitErr := context.Canceled
+	limiter := &countingLimiter{err: limitErr}
+	observer := retryObserver{Retryer: failingAttemptRetryer{}, limiter: limiter, observer: discardObserver{}}
+	if _, err := observer.GetAttemptToken(context.Background()); !errors.Is(err, limitErr) {
+		t.Fatalf("limiter error = %v, want context.Canceled", err)
+	}
+	limiter.err = nil
+	if _, err := observer.GetAttemptToken(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "underlying attempt token failure") {
+		t.Fatalf("underlying token error = %v", err)
 	}
 }

@@ -194,11 +194,13 @@ func (runner *Runner) collect(ctx context.Context, reference time.Time, instance
 			return
 		}
 		name := instance.Name()
+		var retryable interface{ Retryable() bool }
+		canRetry := errors.As(err, &retryable) && retryable.Retryable()
+		runner.logCollectorFailure(name, err, canRetry)
 		if recordErr := runner.store.RecordFailure(name); recordErr != nil {
 			runner.observeCachePublishError(name, "record_failure", recordErr)
 		}
-		var retryable interface{ Retryable() bool }
-		if !errors.As(err, &retryable) || !retryable.Retryable() {
+		if !canRetry {
 			return
 		}
 		backoff := runner.clock.NewTimer(delay)
@@ -212,6 +214,26 @@ func (runner *Runner) collect(ctx context.Context, reference time.Time, instance
 			return
 		}
 	}
+}
+
+func (runner *Runner) logCollectorFailure(collector string, err error, retryable bool) {
+	if runner.config.Logger == nil {
+		return
+	}
+	kind := "unknown"
+	var classified interface{ SafeKind() string }
+	if errors.As(err, &classified) {
+		switch classified.SafeKind() {
+		case "canceled", "timeout", "throttle", "authorization", "validation", "transient", "unknown":
+			kind = classified.SafeKind()
+		}
+	}
+	runner.config.Logger.Warn(
+		"collector refresh failed",
+		"collector", collector,
+		"error_kind", kind,
+		"retryable", retryable,
+	)
 }
 
 func (runner *Runner) observeCachePublishError(collector, operation string, err error) {

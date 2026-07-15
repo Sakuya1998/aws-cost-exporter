@@ -13,8 +13,8 @@ import (
 
 var _ collector.Collector = (*Collector)(nil)
 
-// TestCollectorBuildsCurrentMonthForecast verifies UTC boundaries and snapshot mapping.
-func TestCollectorBuildsCurrentMonthForecast(t *testing.T) {
+// TestCollectorBuildsRemainingMonthForecast verifies UTC boundaries and snapshot mapping.
+func TestCollectorBuildsRemainingMonthForecast(t *testing.T) {
 	reader := &recordingReader{}
 	subject, _ := New(reader, 80)
 	snapshot, err := subject.Collect(context.Background(), time.Date(
@@ -23,7 +23,7 @@ func TestCollectorBuildsCurrentMonthForecast(t *testing.T) {
 	forecasts := snapshot.Forecasts()
 	if err != nil || subject.Name() != Name || len(forecasts) != 1 ||
 		reader.query.PredictionInterval != 80 ||
-		reader.query.Period.Start().Format(time.DateOnly) != "2026-07-01" ||
+		reader.query.Period.Start().Format(time.DateOnly) != "2026-07-12" ||
 		reader.query.Period.End().Format(time.DateOnly) != "2026-08-01" ||
 		forecasts[0].Mean.Amount() != 100 || forecasts[0].Mean.Currency() != "USD" {
 		t.Fatalf("Collect() returned error=%v query=%#v forecasts=%#v", err, reader.query, forecasts)

@@ -63,6 +63,19 @@ func TestEnabledCollectorsHonorsFeatureFlags(t *testing.T) {
 	}
 }
 
+func TestCheckConfigRejectsRuntimeInvalidServerConfig(t *testing.T) {
+	t.Setenv("AWS_COST_EXPORTER_SERVER__WRITE_TIMEOUT", "0s")
+	var output, errorOutput bytes.Buffer
+	err := execute(
+		context.Background(), []string{"--check-config"}, &output, &errorOutput,
+		func(context.Context, config.Config, *slog.Logger) error { return nil },
+	)
+	if err == nil || !strings.Contains(err.Error(), "server.write_timeout") ||
+		strings.Contains(output.String(), "configuration valid") {
+		t.Fatalf("check config output=%q error=%v", output.String(), err)
+	}
+}
+
 func TestUnfilteredGroupedCollectorsDetectsMissingFilters(t *testing.T) {
 	value := config.Default()
 	if !unfilteredGroupedCollectors(value) {

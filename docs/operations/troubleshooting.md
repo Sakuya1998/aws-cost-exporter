@@ -18,9 +18,17 @@ throttling or 5xx responses, inspect `aws_cost_exporter_aws_api_requests_total`
 and `aws_cost_exporter_pagination_pages_total`. The SDK retries throttled
 requests before the scheduler applies failure backoff and may rerun the entire
 collector refresh. `pagination_pages_total` counts page reads per query;
-`aws_api_requests_total` counts each HTTP attempt including SDK retries. When
-both spike, reduce refresh frequency, tighten filters, or lower `max_pages`
-before raising rate limits.
+`aws_api_requests_total` counts logical SDK operations, while
+`aws_api_retries_total` counts acquired retry tokens. Billable HTTP attempts
+can exceed logical operations when retries occur. When these metrics spike,
+reduce refresh frequency, tighten filters, or lower `max_pages` before raising
+rate limits.
+
+If usage collectors succeed but `forecast` remains down, first confirm the
+runtime role grants `ce:GetCostForecast` in addition to `ce:GetCostAndUsage`.
+Then check the process log for an authorization, validation, or data-unavailable
+error from Cost Explorer. Forecast failures do not invalidate previously
+published usage snapshots.
 
 ## Unexpected cost data
 

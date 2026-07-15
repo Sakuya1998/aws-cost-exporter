@@ -30,13 +30,13 @@ aws_cost_account_month_to_date_amount{currency="USD",linked_account_id="12345678
 # TYPE aws_cost_daily_amount gauge
 aws_cost_daily_amount{currency="EUR"} 9
 aws_cost_daily_amount{currency="USD"} 1
-# HELP aws_cost_month_forecast_lower_bound_amount Forecast lower bound for the current UTC month.
+# HELP aws_cost_month_forecast_lower_bound_amount Forecast lower bound for the remaining current UTC month, including today.
 # TYPE aws_cost_month_forecast_lower_bound_amount gauge
 aws_cost_month_forecast_lower_bound_amount{currency="USD"} 90
-# HELP aws_cost_month_forecast_mean_amount Forecast mean for the current UTC month.
+# HELP aws_cost_month_forecast_mean_amount Forecast mean for the remaining current UTC month, including today.
 # TYPE aws_cost_month_forecast_mean_amount gauge
 aws_cost_month_forecast_mean_amount{currency="USD"} 100
-# HELP aws_cost_month_forecast_upper_bound_amount Forecast upper bound for the current UTC month.
+# HELP aws_cost_month_forecast_upper_bound_amount Forecast upper bound for the remaining current UTC month, including today.
 # TYPE aws_cost_month_forecast_upper_bound_amount gauge
 aws_cost_month_forecast_upper_bound_amount{currency="USD"} 110
 # HELP aws_cost_month_to_date_amount Current UTC month-to-date accumulated cost.

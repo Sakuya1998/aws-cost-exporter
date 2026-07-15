@@ -23,10 +23,16 @@ type costDefinition struct {
 	desc   *prometheus.Desc
 }
 
+type costDefinitionKey struct {
+	window cost.Window
+	kind   cost.DimensionKind
+}
+
 // CostCollector maps domain snapshots to stable business metric families.
 type CostCollector struct {
 	store     SnapshotReader
 	costs     []costDefinition
+	indexed   map[costDefinitionKey]*prometheus.Desc
 	forecasts [3]*prometheus.Desc
 }
 
@@ -35,7 +41,7 @@ func NewCostCollector(store SnapshotReader) (*CostCollector, error) {
 	if store == nil {
 		return nil, ErrNilSnapshotReader
 	}
-	return &CostCollector{
+	collector := &CostCollector{
 		store: store,
 		costs: []costDefinition{
 			{cost.WindowDaily, cost.DimensionTotal, newDesc("daily_amount", "Current UTC billing day accumulated cost.", "")},
@@ -48,11 +54,16 @@ func NewCostCollector(store SnapshotReader) (*CostCollector, error) {
 			{cost.WindowMonthToDate, cost.DimensionAccount, newDesc("account_month_to_date_amount", "Current UTC month-to-date cost by linked account.", "linked_account_id")},
 		},
 		forecasts: [3]*prometheus.Desc{
-			newDesc("month_forecast_mean_amount", "Forecast mean for the current UTC month.", ""),
-			newDesc("month_forecast_lower_bound_amount", "Forecast lower bound for the current UTC month.", ""),
-			newDesc("month_forecast_upper_bound_amount", "Forecast upper bound for the current UTC month.", ""),
+			newDesc("month_forecast_mean_amount", "Forecast mean for the remaining current UTC month, including today.", ""),
+			newDesc("month_forecast_lower_bound_amount", "Forecast lower bound for the remaining current UTC month, including today.", ""),
+			newDesc("month_forecast_upper_bound_amount", "Forecast upper bound for the remaining current UTC month, including today.", ""),
 		},
-	}, nil
+	}
+	collector.indexed = make(map[costDefinitionKey]*prometheus.Desc, len(collector.costs))
+	for _, definition := range collector.costs {
+		collector.indexed[costDefinitionKey{definition.window, definition.kind}] = definition.desc
+	}
+	return collector, nil
 }
 
 // Describe sends all fixed business metric descriptors.
@@ -68,20 +79,20 @@ func (collector *CostCollector) Describe(output chan<- *prometheus.Desc) {
 // Collect translates one atomic snapshot read into Prometheus gauges.
 func (collector *CostCollector) Collect(output chan<- prometheus.Metric) {
 	snapshot := collector.store.Snapshot()
-	for _, value := range snapshot.Costs() {
+	snapshot.ForEachCost(func(value cost.Cost) {
 		definition := collector.definition(value.Window, value.Dimension.Kind())
 		if definition == nil {
-			continue
+			return
 		}
 		labels := []string{value.Amount.Currency()}
 		if value.Dimension.Kind() != cost.DimensionTotal {
 			labels = append(labels, value.Dimension.Value())
 		}
 		output <- prometheus.MustNewConstMetric(
-			definition.desc, prometheus.GaugeValue, value.Amount.Amount(), labels...,
+			definition, prometheus.GaugeValue, value.Amount.Amount(), labels...,
 		)
-	}
-	for _, forecast := range snapshot.Forecasts() {
+	})
+	snapshot.ForEachForecast(func(forecast cost.Forecast) {
 		amounts := [3]cost.Money{forecast.Mean, forecast.LowerBound, forecast.UpperBound}
 		for index, amount := range amounts {
 			output <- prometheus.MustNewConstMetric(
@@ -89,17 +100,11 @@ func (collector *CostCollector) Collect(output chan<- prometheus.Metric) {
 				amount.Amount(), amount.Currency(),
 			)
 		}
-	}
+	})
 }
 
-func (collector *CostCollector) definition(window cost.Window, kind cost.DimensionKind) *costDefinition {
-	for index := range collector.costs {
-		candidate := &collector.costs[index]
-		if candidate.window == window && candidate.kind == kind {
-			return candidate
-		}
-	}
-	return nil
+func (collector *CostCollector) definition(window cost.Window, kind cost.DimensionKind) *prometheus.Desc {
+	return collector.indexed[costDefinitionKey{window, kind}]
 }
 
 func newDesc(name, help, dimension string) *prometheus.Desc {

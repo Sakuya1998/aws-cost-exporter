@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
 )
@@ -27,6 +28,10 @@ type OverflowObserver interface {
 func LimitDimensions(values []cost.Cost, limit int, other string, observers ...OverflowObserver) ([]cost.Cost, error) {
 	if limit <= 0 {
 		return nil, ErrInvalidSeriesLimit
+	}
+	other = strings.TrimSpace(other)
+	if other == "" {
+		return nil, ErrInvalidOverflowLabel
 	}
 	for _, value := range values {
 		if value.Dimension.Value() == other {

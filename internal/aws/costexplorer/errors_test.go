@@ -35,6 +35,9 @@ func TestClassifyErrorProducesSafeRetryDecisions(t *testing.T) {
 		if classified.Kind() != test.kind || classified.Retryable() != test.retryable {
 			t.Fatalf("%s: ClassifyError() = (%q, %v), want (%q, %v)", test.name, classified.Kind(), classified.Retryable(), test.kind, test.retryable)
 		}
+		if classified.SafeKind() != string(test.kind) {
+			t.Fatalf("%s: SafeKind() = %q, want %q", test.name, classified.SafeKind(), test.kind)
+		}
 		if !errors.Is(classified, test.err) || strings.Contains(classified.Error(), "private-request-id") {
 			t.Fatalf("%s: classified error lost its cause or leaked AWS text: %v", test.name, classified)
 		}

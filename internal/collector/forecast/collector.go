@@ -48,8 +48,9 @@ func (collector *Collector) Name() string { return Name }
 
 // Collect retrieves the forecast for the current UTC calendar month.
 func (collector *Collector) Collect(ctx context.Context, reference time.Time) (cost.PartialSnapshot, error) {
+	day := cost.DayContaining(reference)
 	month := cost.MonthContaining(reference)
-	period, err := cost.NewPeriod(month.Start(), month.End())
+	period, err := cost.NewPeriod(day.Start(), month.End())
 	if err != nil {
 		return cost.PartialSnapshot{}, fmt.Errorf("build forecast period: %w", err)
 	}

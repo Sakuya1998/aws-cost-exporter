@@ -47,6 +47,9 @@ func (classified *ClassifiedError) Unwrap() error { return classified.cause }
 // Kind returns the bounded failure category.
 func (classified *ClassifiedError) Kind() ErrorKind { return classified.kind }
 
+// SafeKind returns the bounded failure category for infrastructure logging.
+func (classified *ClassifiedError) SafeKind() string { return string(classified.kind) }
+
 // Retryable reports whether refresh-level retry is safe.
 func (classified *ClassifiedError) Retryable() bool { return classified.retryable }
 

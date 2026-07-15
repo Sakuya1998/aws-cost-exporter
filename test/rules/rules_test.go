@@ -50,7 +50,7 @@ func TestRulesContainSafeRecordingsAndAlerts(t *testing.T) {
 	requireAlert(t, alerts, "AWSCostExporterCollectorDown", "30m",
 		"aws_cost_exporter_collector_up == 0")
 	requireAlert(t, alerts, "AWSCostExplorerPaginationSpike", "15m",
-		`sum by (job, instance) (rate(aws_cost_exporter_pagination_pages_total[1h])) > 100`)
+		`sum by (job, instance) (increase(aws_cost_exporter_pagination_pages_total[1h])) > 100`)
 	requireAlert(t, alerts, "AWSCostExplorerThrottleSustained", "15m",
 		`sum by (job, instance) (rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])) > 0`)
 	requireAlert(t, alerts, "AWSDailyCostSpike", "2h",

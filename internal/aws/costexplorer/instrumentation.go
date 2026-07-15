@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"time"
 
@@ -37,8 +38,12 @@ type Observer interface {
 // InstrumentedClient applies global rate limiting and bounded observations.
 type InstrumentedClient struct {
 	api      API
-	limiter  *rate.Limiter
+	limiter  attemptLimiter
 	observer Observer
+}
+
+type attemptLimiter interface {
+	Wait(context.Context) error
 }
 
 // NewInstrumented decorates a Cost Explorer API client.
@@ -46,18 +51,29 @@ func NewInstrumented(api API, value config.RateLimitConfig, observer Observer) (
 	if api == nil {
 		return nil, errors.New("cost explorer API must not be nil")
 	}
-	if value.RequestsPerSecond <= 0 || value.Burst <= 0 {
-		return nil, errors.New("rate limit must be positive")
+	if math.IsNaN(value.RequestsPerSecond) || math.IsInf(value.RequestsPerSecond, 0) ||
+		value.RequestsPerSecond <= 0 || value.Burst <= 0 {
+		return nil, errors.New("rate limit must be finite and positive")
 	}
 	if observer == nil {
 		observer = discardObserver{}
 	}
 
-	return &InstrumentedClient{
-		api:      api,
-		limiter:  rate.NewLimiter(rate.Limit(value.RequestsPerSecond), value.Burst),
-		observer: observer,
-	}, nil
+	return newInstrumentedClient(
+		api,
+		rate.NewLimiter(rate.Limit(value.RequestsPerSecond), value.Burst),
+		observer,
+	)
+}
+
+func newInstrumentedClient(api API, limiter attemptLimiter, observer Observer) (*InstrumentedClient, error) {
+	if api == nil || limiter == nil {
+		return nil, errors.New("cost explorer API and attempt limiter must not be nil")
+	}
+	if observer == nil {
+		observer = discardObserver{}
+	}
+	return &InstrumentedClient{api: api, limiter: limiter, observer: observer}, nil
 }
 
 // GetCostAndUsage rate-limits and observes one paginated cost operation.
@@ -67,11 +83,6 @@ func (client *InstrumentedClient) GetCostAndUsage(
 	options ...func(*awscostexplorer.Options),
 ) (*awscostexplorer.GetCostAndUsageOutput, error) {
 	started := time.Now()
-	if err := client.limiter.Wait(ctx); err != nil {
-		client.observer.ObserveRequest(operationCostAndUsage, requestStatus(err), time.Since(started))
-		return nil, fmt.Errorf("wait for Cost Explorer rate limit: %w", err)
-	}
-
 	output, err := client.api.GetCostAndUsage(
 		ctx, input, client.withRetryObserver(operationCostAndUsage, options)...,
 	)
@@ -87,11 +98,6 @@ func (client *InstrumentedClient) GetCostForecast(
 	options ...func(*awscostexplorer.Options),
 ) (*awscostexplorer.GetCostForecastOutput, error) {
 	started := time.Now()
-	if err := client.limiter.Wait(ctx); err != nil {
-		client.observer.ObserveRequest(operationCostForecast, requestStatus(err), time.Since(started))
-		return nil, fmt.Errorf("wait for Cost Explorer rate limit: %w", err)
-	}
-
 	output, err := client.api.GetCostForecast(
 		ctx, input, client.withRetryObserver(operationCostForecast, options)...,
 	)
@@ -108,6 +114,7 @@ func (client *InstrumentedClient) withRetryObserver(operation string, options []
 		if value.Retryer != nil {
 			value.Retryer = retryObserver{
 				Retryer: value.Retryer, operation: operation, observer: client.observer,
+				limiter: client.limiter,
 			}
 		}
 	})
@@ -118,6 +125,7 @@ type retryObserver struct {
 	aws.Retryer
 	operation string
 	observer  Observer
+	limiter   attemptLimiter
 }
 
 // GetRetryToken observes a retry only after the SDK grants its token.
@@ -131,6 +139,9 @@ func (observer retryObserver) GetRetryToken(ctx context.Context, operationError 
 
 // GetAttemptToken preserves RetryerV2 attempt-rate behavior when available.
 func (observer retryObserver) GetAttemptToken(ctx context.Context) (func(error) error, error) {
+	if err := observer.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("wait for Cost Explorer attempt rate limit: %w", err)
+	}
 	if retryer, ok := observer.Retryer.(aws.RetryerV2); ok {
 		return retryer.GetAttemptToken(ctx)
 	}

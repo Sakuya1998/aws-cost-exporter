@@ -39,16 +39,13 @@ type Server struct {
 
 // New validates dependencies and constructs an isolated HTTP server.
 func New(value config.ServerConfig, gatherer prometheus.Gatherer, reader ReadinessReader, required []string, build version.Info) (*Server, error) {
-	metricsTimeout := value.WriteTimeout / 2
-	if isNil(gatherer) || isNil(reader) || value.ListenAddress == "" ||
-		!strings.HasPrefix(value.MetricsPath, "/") || value.MetricsPath == "/" ||
-		value.MetricsPath == "/healthz" || value.MetricsPath == "/ready" ||
-		value.MetricsPath == "/version" || value.MaxInFlight <= 0 ||
-		value.ReadHeaderTimeout <= 0 || value.ReadTimeout <= 0 ||
-		metricsTimeout <= 0 || value.IdleTimeout <= 0 ||
-		value.ShutdownTimeout <= 0 || len(required) == 0 {
+	if isNil(gatherer) || isNil(reader) || len(required) == 0 {
 		return nil, ErrInvalidConfig
 	}
+	if err := config.ValidateServer(value); err != nil {
+		return nil, ErrInvalidConfig
+	}
+	metricsTimeout := value.WriteTimeout / 2
 	names := make([]string, 0, len(required))
 	known := make(map[string]struct{}, len(required))
 	for _, name := range required {

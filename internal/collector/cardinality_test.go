@@ -67,8 +67,16 @@ func TestLimitDimensionsRejectsMixedCurrencyAndReservedValue(t *testing.T) {
 	}, 2, "__other__"); !errors.Is(err, basecollector.ErrReservedDimension) {
 		t.Fatalf("reserved dimension error = %v", err)
 	}
+	if _, err := basecollector.LimitDimensions([]cost.Cost{
+		{Window: cost.WindowDaily, Dimension: other, Amount: mustMoney(t, 1, "USD")},
+	}, 2, " __other__ "); !errors.Is(err, basecollector.ErrReservedDimension) {
+		t.Fatalf("normalized reserved dimension error = %v", err)
+	}
 	if _, err := basecollector.LimitDimensions(nil, 0, "__other__"); !errors.Is(err, basecollector.ErrInvalidSeriesLimit) {
 		t.Fatalf("invalid limit error = %v", err)
+	}
+	if _, err := basecollector.LimitDimensions(nil, 1, "   "); !errors.Is(err, basecollector.ErrInvalidOverflowLabel) {
+		t.Fatalf("invalid overflow label error = %v", err)
 	}
 }
 

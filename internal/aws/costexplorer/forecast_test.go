@@ -31,7 +31,7 @@ func TestForecastAdapterReadsRealSDKEndpoint(t *testing.T) {
 		if !strings.HasSuffix(request.Header.Get("X-Amz-Target"), ".GetCostForecast") ||
 			!strings.Contains(string(body), `"PredictionIntervalLevel":80`) ||
 			!strings.Contains(string(body), `"Granularity":"MONTHLY"`) || !strings.Contains(string(body), `"Metric":"UNBLENDED_COST"`) ||
-			!strings.Contains(string(body), `"Start":"2026-07-01"`) || !strings.Contains(string(body), `"End":"2026-08-01"`) ||
+			!strings.Contains(string(body), `"Start":"2026-07-15"`) || !strings.Contains(string(body), `"End":"2026-08-01"`) ||
 			!strings.Contains(string(body), `"LINKED_ACCOUNT"`) || !strings.Contains(string(body), `"123456789012"`) ||
 			!strings.Contains(string(body), `"SERVICE"`) || !strings.Contains(string(body), `"AmazonEC2"`) {
 			t.Errorf("unexpected forecast request target=%q body=%s", request.Header.Get("X-Amz-Target"), body)
@@ -44,7 +44,7 @@ func TestForecastAdapterReadsRealSDKEndpoint(t *testing.T) {
 	value := config.Default().AWS
 	value.EndpointURL, value.RequestTimeout, value.Retry.MaxAttempts = server.URL, time.Second, 1
 	client, _ := New(context.Background(), value)
-	period, _ := cost.NewPeriod(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	period, _ := cost.NewPeriod(time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
 	adapter, _ := NewForecastAdapter(client)
 	forecast, err := adapter.ReadForecast(context.Background(), ports.ForecastQuery{
 		Period: period, PredictionInterval: 80,
@@ -52,8 +52,30 @@ func TestForecastAdapterReadsRealSDKEndpoint(t *testing.T) {
 	})
 	if err != nil || forecast.Mean.Amount() != 100 ||
 		forecast.LowerBound.Amount() != 80 || forecast.UpperBound.Amount() != 120 ||
-		forecast.Mean.Currency() != "USD" || forecast.Period.Start() != period.Start() {
+		forecast.Mean.Currency() != "USD" || forecast.Period.Start() != period.Start() ||
+		forecast.Period.End() != period.End() {
 		t.Fatalf("ReadForecast() = %#v, %v; want ordered USD forecast", forecast, err)
+	}
+}
+
+func TestMapForecastRejectsUnrelatedMonthlyBucket(t *testing.T) {
+	t.Parallel()
+	period, _ := cost.NewPeriod(
+		time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+	)
+	output := &awscostexplorer.GetCostForecastOutput{
+		Total: &cetypes.MetricValue{Unit: aws.String("USD")},
+		ForecastResultsByTime: []cetypes.ForecastResult{{
+			TimePeriod: &cetypes.DateInterval{
+				Start: aws.String("2026-06-01"), End: aws.String("2026-08-01"),
+			},
+			MeanValue: aws.String("100"), PredictionIntervalLowerBound: aws.String("80"),
+			PredictionIntervalUpperBound: aws.String("120"),
+		}},
+	}
+	if forecast, err := MapForecast(output, ports.ForecastQuery{Period: period}); !errors.Is(err, ErrInvalidResponse) || forecast != (cost.Forecast{}) {
+		t.Fatalf("MapForecast() = %#v, %v; want period mismatch", forecast, err)
 	}
 }
 

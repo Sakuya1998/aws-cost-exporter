@@ -1,8 +1,11 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -105,6 +108,7 @@ func TestRunnerEnforcesConcurrencyAndSingleFlight(t *testing.T) {
 func TestRunnerRecordsFailuresAndRejectsInvalidConfig(t *testing.T) {
 	store := newFakeStore()
 	observer := newFakeObserver()
+	var logs bytes.Buffer
 	subject, _ := New([]Collector{&fakeCollector{
 		name: "forecast", collect: func(context.Context, time.Time) (cost.PartialSnapshot, error) {
 			return cost.PartialSnapshot{}, errors.New("unavailable")
@@ -113,6 +117,7 @@ func TestRunnerRecordsFailuresAndRejectsInvalidConfig(t *testing.T) {
 		Interval: time.Hour, StartupRefresh: true, MaxConcurrency: 1,
 		Backoff:  BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2},
 		Observer: observer,
+		Logger:   slog.New(slog.NewJSONHandler(&logs, nil)),
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -122,6 +127,12 @@ func TestRunnerRecordsFailuresAndRejectsInvalidConfig(t *testing.T) {
 	}
 	if event := receive(t, observer.refresh); event.status != "error" {
 		t.Fatalf("refresh event = %#v, want error", event)
+	}
+	if text := logs.String(); !strings.Contains(text, `"msg":"collector refresh failed"`) ||
+		!strings.Contains(text, `"collector":"forecast"`) ||
+		!strings.Contains(text, `"error_kind":"unknown"`) ||
+		strings.Contains(text, "unavailable") {
+		t.Fatalf("collector failure log is missing bounded fields or leaked error text: %s", text)
 	}
 	cancel()
 	receive(t, done)

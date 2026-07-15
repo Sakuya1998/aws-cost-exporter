@@ -78,6 +78,26 @@ func (snapshot Snapshot) Forecasts() []Forecast {
 	return append([]Forecast(nil), snapshot.forecasts...)
 }
 
+// ForEachCost visits immutable cost values without copying snapshot storage.
+func (snapshot Snapshot) ForEachCost(visit func(Cost)) {
+	if visit == nil {
+		return
+	}
+	for _, value := range snapshot.costs {
+		visit(value)
+	}
+}
+
+// ForEachForecast visits immutable forecast values without copying snapshot storage.
+func (snapshot Snapshot) ForEachForecast(visit func(Forecast)) {
+	if visit == nil {
+		return
+	}
+	for _, value := range snapshot.forecasts {
+		visit(value)
+	}
+}
+
 // costLess defines deterministic ordering for metric generation.
 func costLess(left, right Cost) bool {
 	if left.Window != right.Window {

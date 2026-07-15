@@ -243,7 +243,7 @@ aws:
     max_backoff: 5ms
   rate_limit:
     requests_per_second: 1
-    burst: 10
+    burst: 5
 cost_explorer:
   startup_refresh: true
   jitter_ratio: 0
@@ -284,7 +284,7 @@ aws:
     max_backoff: 5ms
   rate_limit:
     requests_per_second: 1
-    burst: 10
+    burst: 5
 cost_explorer:
   startup_refresh: true
   jitter_ratio: 0

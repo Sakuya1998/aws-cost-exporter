@@ -23,9 +23,14 @@ accounts to reduce pages before collection.
 `cost_explorer.max_pages` (default 50) hard-stops each paginated query.
 Tune example alerts in `rules/prometheus/aws-cost-exporter.rules.yaml`:
 `AWSCostExplorerPaginationSpike` uses
-`sum by (job, instance) (rate(aws_cost_exporter_pagination_pages_total[1h]))`
+`sum by (job, instance) (increase(aws_cost_exporter_pagination_pages_total[1h]))`
 and `AWSCostExplorerThrottleSustained` uses
 `rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])`.
+The shared rate limiter applies to every SDK attempt, including retries.
+`aws_cost_exporter_aws_api_requests_total` counts logical SDK operations,
+`aws_cost_exporter_pagination_pages_total` counts successfully read pages, and
+`aws_cost_exporter_aws_api_retries_total` counts acquired SDK retry tokens.
+Billable HTTP attempts can exceed logical operations when retries occur.
 Per refresh, estimate Cost Explorer calls as
 `collectors × 2 × pages + forecast` (for example 4 pages with total+service
 enabled ≈ 16 `GetCostAndUsage` plus forecast when enabled).
@@ -38,8 +43,8 @@ controls the aggregate label when `overflow: aggregate` (default `__other__`).
 Service, region, and account families honor `series_limit`; `total` and forecast
 metrics expand naturally by `currency` label and are not subject to `series_limit`.
 Set `server.shutdown_timeout` high enough for paginated refreshes:
-`collectors × 2 × max_pages / requests_per_second` is a conservative upper
-bound before scheduler shutdown may time out.
+`collectors × 2 × max_pages / requests_per_second` is the no-retry pacing
+baseline; SDK retries and backoff increase the required shutdown time.
 AWS updates billing data only periodically, and delayed charges can be
 backfilled. Metrics are operational observations, not accounting records.
 Never sum different `currency` label values.
@@ -99,6 +104,10 @@ environment name uses `__` between nested keys, for example
 `AWS_COST_EXPORTER_SERVER__LISTEN_ADDRESS=:9090`. The complete schema is in
 `configs/aws-cost-exporter.example.yaml` and
 `internal/config/schema.go`; configuration reload requires a restart.
+`--check-config` validates the same server constraints used at startup. Rate
+limit burst must be between 1 and 5, retry attempts between 1 and 10, and
+`overflow_label` must not contain leading or trailing whitespace. Previously
+accepted values outside these bounds must be corrected before upgrading.
 
 ## Run with Docker Compose
 

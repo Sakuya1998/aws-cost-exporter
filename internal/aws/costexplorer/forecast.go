@@ -64,7 +64,11 @@ func MapForecast(output *awscostexplorer.GetCostForecastOutput, query ports.Fore
 	if err != nil {
 		return cost.Forecast{}, err
 	}
-	if !period.Start().Equal(query.Period.Start()) || !period.End().Equal(query.Period.End()) {
+	// Cost Explorer may normalize a monthly bucket's start to the first day;
+	// the domain forecast retains the requested remaining-month window.
+	month := cost.MonthContaining(query.Period.Start())
+	validStart := period.Start().Equal(query.Period.Start()) || period.Start().Equal(month.Start())
+	if !validStart || !period.End().Equal(query.Period.End()) {
 		return cost.Forecast{}, fmt.Errorf("%w: forecast period mismatch", ErrInvalidResponse)
 	}
 	currency := aws.ToString(output.Total.Unit)
@@ -84,6 +88,6 @@ func MapForecast(output *awscostexplorer.GetCostForecastOutput, query ports.Fore
 		return cost.Forecast{}, fmt.Errorf("%w: prediction bounds are unordered", ErrInvalidResponse)
 	}
 	return cost.Forecast{
-		Period: period, Mean: mean, LowerBound: lower, UpperBound: upper,
+		Period: query.Period, Mean: mean, LowerBound: lower, UpperBound: upper,
 	}, nil
 }

@@ -16,9 +16,9 @@ var (
 	// ErrInvalidPage indicates the SDK returned no page without an error.
 	ErrInvalidPage = errors.New("invalid Cost Explorer page")
 	// ErrPageLimitExceeded indicates pagination exceeded the configured page budget.
-	ErrPageLimitExceeded = errors.New("Cost Explorer page limit exceeded")
+	ErrPageLimitExceeded = errors.New("cost explorer page limit exceeded")
 	// ErrInvalidPageLimit indicates a non-positive pagination limit.
-	ErrInvalidPageLimit = errors.New("Cost Explorer page limit must be positive")
+	ErrInvalidPageLimit = errors.New("cost explorer page limit must be positive")
 )
 
 // UsagePaginator retrieves complete GetCostAndUsage result sets.

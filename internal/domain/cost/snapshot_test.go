@@ -1,6 +1,7 @@
 package cost_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -37,6 +38,16 @@ func TestNewSnapshotSortsAndCopiesRecords(t *testing.T) {
 	if gotForecasts[0].Mean.Amount() != 2 {
 		t.Fatalf("Forecasts()[0].Mean = %v, want 2", gotForecasts[0].Mean.Amount())
 	}
+	visitedForecasts := 0
+	snapshot.ForEachForecast(func(value cost.Forecast) {
+		visitedForecasts++
+		if value.Mean.Amount() != 2 {
+			t.Errorf("ForEachForecast mean = %v, want 2", value.Mean.Amount())
+		}
+	})
+	if visitedForecasts != 1 {
+		t.Fatalf("ForEachForecast visited %d values, want 1", visitedForecasts)
+	}
 
 	gotCosts[0].Amount = two
 	if snapshot.Costs()[0].Amount.Amount() != 1 {
@@ -71,4 +82,32 @@ func TestMergeSnapshotsPreservesTotal(t *testing.T) {
 	if len(merged.Costs()) != 2 || total != 4 {
 		t.Fatalf("MergeSnapshots() produced %d costs totaling %v, want 2 costs totaling 4", len(merged.Costs()), total)
 	}
+}
+
+func TestSnapshotForEachVisitsValuesWithoutSeriesScaledAllocations(t *testing.T) {
+	period := cost.DayContaining(time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC))
+	amount, _ := cost.NewMoney(1, "USD")
+	values := make([]cost.Cost, 1000)
+	for index := range values {
+		dimension, err := cost.NewDimension(cost.DimensionService, fmt.Sprintf("service-%04d", index))
+		if err != nil {
+			t.Fatal(err)
+		}
+		values[index] = cost.Cost{
+			Window: cost.WindowDaily, Period: period, Dimension: dimension, Amount: amount,
+		}
+	}
+	small, large := cost.NewSnapshot(values[:1], nil), cost.NewSnapshot(values, nil)
+	visited := 0
+	visit := func(cost.Cost) { visited++ }
+	smallAllocs := testing.AllocsPerRun(100, func() { small.ForEachCost(visit) })
+	largeAllocs := testing.AllocsPerRun(100, func() { large.ForEachCost(visit) })
+	if smallAllocs != largeAllocs {
+		t.Fatalf("iteration allocations scaled with series: small=%v large=%v", smallAllocs, largeAllocs)
+	}
+	if visited == 0 {
+		t.Fatal("ForEachCost did not visit values")
+	}
+	small.ForEachCost(nil)
+	small.ForEachForecast(nil)
 }

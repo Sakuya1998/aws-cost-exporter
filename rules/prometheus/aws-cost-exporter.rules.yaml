@@ -29,7 +29,7 @@ groups:
 
       # Tune the threshold for large accounts with heavy pagination.
       - alert: AWSCostExplorerPaginationSpike
-        expr: sum by (job, instance) (rate(aws_cost_exporter_pagination_pages_total[1h])) > 100
+        expr: sum by (job, instance) (increase(aws_cost_exporter_pagination_pages_total[1h])) > 100
         for: 15m
         labels:
           severity: warning

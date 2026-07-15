@@ -29,8 +29,8 @@ type Exporter struct {
 
 	up, success, attempt, age, series, buildInfo  *prometheus.Desc
 	refresh, requests, retries, skipped, overflow *prometheus.CounterVec
-	pagination, cachePublishErrors                  *prometheus.CounterVec
-	shutdownTimeouts                                prometheus.Counter
+	pagination, cachePublishErrors                *prometheus.CounterVec
+	shutdownTimeouts                              prometheus.Counter
 	refreshDuration, requestDuration              *prometheus.HistogramVec
 	events                                        []prometheus.Collector
 }
@@ -59,7 +59,7 @@ func NewExporter(reader StatusReader, clock ports.Clock, build version.Info, nam
 	exporter.series = selfDesc("snapshot_series", "Current business series owned by the collector.", []string{"collector"})
 	exporter.buildInfo = selfDesc("build_info", "Build metadata for aws-cost-exporter.", []string{"version", "revision", "go_version"})
 	exporter.refresh = counter("refresh_total", "Collector refresh attempts.", []string{"collector", "status"})
-	exporter.requests = counter("aws_api_requests_total", "Cost Explorer API requests.", []string{"operation", "status"})
+	exporter.requests = counter("aws_api_requests_total", "Cost Explorer logical SDK operations.", []string{"operation", "status"})
 	exporter.retries = counter("aws_api_retries_total", "Cost Explorer SDK retries.", []string{"operation", "reason"})
 	exporter.skipped = counter("scheduler_skipped_runs_total", "Scheduler runs skipped before execution.", []string{"collector", "reason"})
 	exporter.overflow = counter("dimension_overflow_values_total", "Dimension values processed into overflow during collection attempts.", []string{"dimension"})
@@ -70,7 +70,7 @@ func NewExporter(reader StatusReader, clock ports.Clock, build version.Info, nam
 		Help: "Scheduler shutdown waits that exceeded server.shutdown_timeout.",
 	})
 	exporter.refreshDuration = histogram("refresh_duration_seconds", "Collector refresh duration.", []string{"collector"}, []float64{1, 5, 10, 30, 60, 120, 300})
-	exporter.requestDuration = histogram("aws_api_request_duration_seconds", "Cost Explorer API request duration.", []string{"operation"}, []float64{.1, .5, 1, 2, 5, 10, 30, 60})
+	exporter.requestDuration = histogram("aws_api_request_duration_seconds", "Cost Explorer logical SDK operation duration, including rate-limit waits and retries.", []string{"operation"}, []float64{.1, .5, 1, 2, 5, 10, 30, 60})
 	exporter.events = []prometheus.Collector{
 		exporter.refresh, exporter.requests, exporter.retries, exporter.skipped,
 		exporter.overflow, exporter.pagination, exporter.cachePublishErrors,

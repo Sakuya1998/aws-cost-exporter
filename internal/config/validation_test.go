@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,27 @@ func TestValidateEnforcesCrossFieldInvariants(t *testing.T) {
 	}{
 		{name: "metrics path", path: "server.metrics_path", mutate: func(value *config.Config) {
 			value.Server.MetricsPath = "metrics"
+		}},
+		{name: "reserved metrics path", path: "server.metrics_path", mutate: func(value *config.Config) {
+			value.Server.MetricsPath = "/healthz"
+		}},
+		{name: "debug metrics path", path: "server.metrics_path", mutate: func(value *config.Config) {
+			value.Server.Debug.Enabled, value.Server.MetricsPath = true, "/debug/pprof"
+		}},
+		{name: "write timeout", path: "server.write_timeout", mutate: func(value *config.Config) {
+			value.Server.WriteTimeout = 0
+		}},
+		{name: "read header timeout", path: "server.read_header_timeout", mutate: func(value *config.Config) {
+			value.Server.ReadHeaderTimeout = -time.Second
+		}},
+		{name: "read timeout", path: "server.read_timeout", mutate: func(value *config.Config) {
+			value.Server.ReadTimeout = 0
+		}},
+		{name: "idle timeout", path: "server.idle_timeout", mutate: func(value *config.Config) {
+			value.Server.IdleTimeout = 0
+		}},
+		{name: "shutdown timeout", path: "server.shutdown_timeout", mutate: func(value *config.Config) {
+			value.Server.ShutdownTimeout = 0
 		}},
 		{name: "AWS region", path: "aws.region", mutate: func(value *config.Config) {
 			value.AWS.Region = "us-west-2"
@@ -52,6 +74,24 @@ func TestValidateEnforcesCrossFieldInvariants(t *testing.T) {
 		{name: "rate limit upper bound", path: "aws.rate_limit.requests_per_second", mutate: func(value *config.Config) {
 			value.AWS.RateLimit.RequestsPerSecond = 1.5
 		}},
+		{name: "rate limit not finite", path: "aws.rate_limit.requests_per_second", mutate: func(value *config.Config) {
+			value.AWS.RateLimit.RequestsPerSecond = math.NaN()
+		}},
+		{name: "rate limit burst", path: "aws.rate_limit.burst", mutate: func(value *config.Config) {
+			value.AWS.RateLimit.Burst = 6
+		}},
+		{name: "retry attempts", path: "aws.retry.max_attempts", mutate: func(value *config.Config) {
+			value.AWS.Retry.MaxAttempts = 11
+		}},
+		{name: "jitter not finite", path: "cost_explorer.jitter_ratio", mutate: func(value *config.Config) {
+			value.CostExplorer.JitterRatio = math.Inf(1)
+		}},
+		{name: "overflow label whitespace", path: "cost_explorer.dimensions.overflow_label", mutate: func(value *config.Config) {
+			value.CostExplorer.Dimensions.OverflowLabel = " __other__ "
+		}},
+		{name: "backoff multiplier not finite", path: "scheduler.failure_backoff.multiplier", mutate: func(value *config.Config) {
+			value.Scheduler.FailureBackoff.Multiplier = math.NaN()
+		}},
 		{name: "freshness", path: "cache.freshness_ttl", mutate: func(value *config.Config) {
 			value.Cache.FreshnessTTL = time.Hour
 		}},
@@ -60,6 +100,7 @@ func TestValidateEnforcesCrossFieldInvariants(t *testing.T) {
 		}},
 		{name: "collectors", path: "cost_explorer.collectors", mutate: func(value *config.Config) {
 			value.CostExplorer.Collectors = config.CollectorsConfig{}
+			value.CostExplorer.Forecast.Enabled = false
 		}},
 	}
 
@@ -74,6 +115,15 @@ func TestValidateEnforcesCrossFieldInvariants(t *testing.T) {
 				t.Fatalf("Validate() error = %v, want field path %q", err, test.path)
 			}
 		})
+	}
+}
+
+func TestValidateAllowsForecastOnly(t *testing.T) {
+	t.Parallel()
+	value := config.Default()
+	value.CostExplorer.Collectors = config.CollectorsConfig{}
+	if err := config.Validate(value); err != nil {
+		t.Fatalf("Validate(forecast only) error = %v", err)
 	}
 }
 
