@@ -16,7 +16,7 @@ func TestContainerAssetsEnforceSecurityContract(t *testing.T) {
 	root := filepath.Join("..", "..")
 	dockerfile := read(t, filepath.Join(root, "Dockerfile"))
 	for _, required := range []string{
-		"FROM --platform=$BUILDPLATFORM golang:1.26.4-alpine3.24 AS builder",
+		"FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine3.24 AS builder",
 		"ARG TARGETOS", "ARG TARGETARCH", "CGO_ENABLED=0",
 		"GOOS=$TARGETOS", "GOARCH=$TARGETARCH", "-trimpath",
 		"gcr.io/distroless/static-debian12:nonroot",

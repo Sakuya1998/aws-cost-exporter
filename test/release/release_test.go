@@ -59,6 +59,7 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		"tags: [\"v*\"]", "contents: write", "packages: write", "id-token: write",
+		"go-version: 1.26.5",
 		`^v[0-9]+\.[0-9]+\.[0-9]+`, "goreleaser release --clean",
 		"ghcr.io/${{ github.repository }}", "linux/amd64,linux/arm64",
 		"--provenance=mode=max", "--sbom=true", "containerimage.digest",
