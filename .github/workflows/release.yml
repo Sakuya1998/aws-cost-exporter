@@ -9,10 +9,6 @@ permissions:
   packages: write
   id-token: write
 
-env:
-  IMAGE: ghcr.io/${{ github.repository }}
-  CHART: ghcr.io/${{ github.repository_owner }}/charts/aws-cost-exporter
-
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -34,6 +30,9 @@ jobs:
           [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
           echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           echo "BUILD_DATE=$(date -u +%FT%TZ)" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "CHART_REPOSITORY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts" >> "$GITHUB_ENV"
+          echo "CHART=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts/aws-cost-exporter" >> "$GITHUB_ENV"
       - name: Install pinned release tools
         run: |
           go install github.com/goreleaser/goreleaser/v2@v2.17.0
@@ -85,7 +84,7 @@ jobs:
           helm package charts/aws-cost-exporter --version "$VERSION" \
             --app-version "$VERSION" --destination dist
           output="$(helm push "dist/aws-cost-exporter-$VERSION.tgz" \
-            "oci://ghcr.io/${{ github.repository_owner }}/charts" 2>&1)"
+            "oci://$CHART_REPOSITORY" 2>&1)"
           echo "$output"
           digest="$(awk '/^Digest: sha256:/{print $2}' <<< "$output")"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]

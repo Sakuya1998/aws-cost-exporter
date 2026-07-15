@@ -61,11 +61,14 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 		"tags: [\"v*\"]", "contents: write", "packages: write", "id-token: write",
 		"go-version: 1.26.5",
 		`^v[0-9]+\.[0-9]+\.[0-9]+`, "goreleaser release --clean",
-		"ghcr.io/${{ github.repository }}", "linux/amd64,linux/arm64",
+		`IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}`,
+		`CHART_REPOSITORY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts`,
+		`CHART=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts/aws-cost-exporter`,
+		"linux/amd64,linux/arm64",
 		"--provenance=mode=max", "--sbom=true", "containerimage.digest",
 		"trivy image", "cosign sign --yes", "helm package", "helm push",
 		"charts/aws-cost-exporter", "GITHUB_REF_NAME", "!= *-*",
-		`'.["containerimage.digest"]'`, `--app-version "$VERSION"`,
+		`'.["containerimage.digest"]'`, `--app-version "$VERSION"`, `"oci://$CHART_REPOSITORY"`,
 		`cosign sign --yes "$CHART@$digest"`, `--platform "$platform"`,
 	} {
 		if !strings.Contains(content, fragment) {
