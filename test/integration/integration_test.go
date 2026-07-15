@@ -137,6 +137,31 @@ func TestPartialCollectorFailureKeepsSuccessfulSnapshot(t *testing.T) {
 	}
 }
 
+func TestMaxPagesExceededMarksCollectorDown(t *testing.T) {
+	baseURL := runExporter(t, func(writer http.ResponseWriter, request *http.Request) {
+		input := decodeRequest(t, request)
+		next := `,"NextPageToken":"next"`
+		if input.NextPageToken != "" {
+			next = ""
+		}
+		writeFixture(t, writer, "grouped.json", map[string]string{
+			"START": input.TimePeriod.Start, "END": input.TimePeriod.End,
+			"KEY": "AmazonEC2", "AMOUNT": "1", "NEXT": next,
+		})
+	}, func(value *config.Config) {
+		value.CostExplorer.Collectors.Service = true
+		value.CostExplorer.MaxPages = 1
+	})
+	body := awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
+		return code == http.StatusOK &&
+			strings.Contains(body, "aws_cost_exporter_collector_up{collector=\"service\"} 0\n") &&
+			strings.Contains(body, "aws_cost_exporter_refresh_total{collector=\"service\",status=\"error\"} 1\n")
+	})
+	if strings.Contains(body, "aws_cost_service_daily_amount{") {
+		t.Fatalf("failed pagination published metrics: %s", body)
+	}
+}
+
 func runExporter(t *testing.T, handler http.HandlerFunc, enable func(*config.Config)) string {
 	t.Helper()
 	t.Setenv("AWS_ACCESS_KEY_ID", "integration-access-key")

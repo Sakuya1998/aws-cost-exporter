@@ -48,7 +48,7 @@ func TestRunServicesTimesOutWaitingForScheduler(t *testing.T) {
 	done := make(chan error, 1)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	go func() {
-		done <- app.RunServices(ctx, blockingScheduler{}, server, listener, value.Server.ShutdownTimeout, logger)
+		done <- app.RunServices(ctx, blockingScheduler{}, server, listener, value.Server.ShutdownTimeout, logger, nil)
 	}()
 	time.Sleep(20 * time.Millisecond)
 	cancel()
@@ -76,7 +76,7 @@ func TestRunServicesTimesOutWhenServerExitsFirst(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	done := make(chan error, 1)
 	go func() {
-		done <- app.RunServices(context.Background(), blockingScheduler{}, server, listener, value.Server.ShutdownTimeout, logger)
+		done <- app.RunServices(context.Background(), blockingScheduler{}, server, listener, value.Server.ShutdownTimeout, logger, nil)
 	}()
 	time.Sleep(20 * time.Millisecond)
 	if err := listener.Close(); err != nil {
@@ -89,5 +89,33 @@ func TestRunServicesTimesOutWhenServerExitsFirst(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("RunServices did not return before test timeout")
+	}
+}
+
+func TestRunServicesInvokesShutdownTimeoutCallback(t *testing.T) {
+	value := config.Default()
+	value.Server.ShutdownTimeout = 20 * time.Millisecond
+	server, err := httpserver.New(value.Server, prometheus.NewRegistry(), staticReader{}, []string{"total"}, version.Info{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	go func() {
+		_ = app.RunServices(context.Background(), blockingScheduler{}, server, listener, value.Server.ShutdownTimeout, logger, func() {
+			called = true
+		})
+	}()
+	time.Sleep(30 * time.Millisecond)
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if !called {
+		t.Fatal("shutdown timeout callback was not invoked")
 	}
 }

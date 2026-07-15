@@ -35,6 +35,7 @@ func Validate(value Config) error {
 		{value.CostExplorer.Dimensions.SeriesLimit <= 0, "cost_explorer.dimensions.series_limit", "must be positive"},
 		{value.CostExplorer.Dimensions.SeriesLimit > 2000, "cost_explorer.dimensions.series_limit", "must not exceed 2000"},
 		{value.CostExplorer.Dimensions.Overflow != "aggregate", "cost_explorer.dimensions.overflow", "only aggregate is supported"},
+		{strings.TrimSpace(value.CostExplorer.Dimensions.OverflowLabel) == "", "cost_explorer.dimensions.overflow_label", "must not be empty"},
 		{value.Cache.FreshnessTTL < value.CostExplorer.RefreshInterval, "cache.freshness_ttl", "must not be less than refresh_interval"},
 		{value.Cache.StaleAfter < value.Cache.FreshnessTTL, "cache.stale_after", "must not be less than freshness_ttl"},
 		{value.Scheduler.MaxConcurrency <= 0, "scheduler.max_concurrency", "must be positive"},

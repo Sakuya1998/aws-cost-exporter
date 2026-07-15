@@ -4,7 +4,6 @@ package account
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	basecollector "github.com/sakuya1998/aws-cost-exporter/internal/collector"
@@ -15,9 +14,6 @@ import (
 // Name is the stable registry and telemetry identifier.
 const Name = "account"
 
-// OtherAccount is the bounded label for aggregated overflow.
-const OtherAccount = "__other__"
-
 var (
 	// ErrNilReader indicates a missing Cost Explorer dependency.
 	ErrNilReader = errors.New("account cost reader must not be nil")
@@ -25,28 +21,32 @@ var (
 	ErrInvalidAccountID = errors.New("invalid linked account ID")
 	// ErrInvalidSeriesLimit preserves the collector-specific public contract.
 	ErrInvalidSeriesLimit = basecollector.ErrInvalidSeriesLimit
+	// ErrInvalidOverflowLabel preserves the collector-specific public contract.
+	ErrInvalidOverflowLabel = basecollector.ErrInvalidOverflowLabel
 )
 
 // Reader is the narrow cost-reading port required by this collector.
-type Reader interface {
-	ReadCosts(context.Context, ports.CostQuery) ([]cost.Cost, error)
-}
+type Reader = basecollector.GroupedReader
 
 // Collector retrieves validated linked-account costs.
 type Collector struct {
 	reader           Reader
 	linkedAccountIDs []string
 	seriesLimit      int
+	overflowLabel    string
 	observers        []basecollector.OverflowObserver
 }
 
 // New validates and copies dependencies and the optional account allowlist.
-func New(reader Reader, linkedAccountIDs []string, seriesLimit int, observers ...basecollector.OverflowObserver) (*Collector, error) {
+func New(reader Reader, linkedAccountIDs []string, seriesLimit int, overflowLabel string, observers ...basecollector.OverflowObserver) (*Collector, error) {
 	if reader == nil {
 		return nil, ErrNilReader
 	}
 	if seriesLimit <= 0 {
 		return nil, ErrInvalidSeriesLimit
+	}
+	if err := basecollector.ValidateOverflowLabel(overflowLabel); err != nil {
+		return nil, ErrInvalidOverflowLabel
 	}
 	for _, accountID := range linkedAccountIDs {
 		if !validAccountID(accountID) {
@@ -55,7 +55,8 @@ func New(reader Reader, linkedAccountIDs []string, seriesLimit int, observers ..
 	}
 	return &Collector{
 		reader: reader, linkedAccountIDs: append([]string(nil), linkedAccountIDs...),
-		seriesLimit: seriesLimit, observers: append([]basecollector.OverflowObserver(nil), observers...),
+		seriesLimit: seriesLimit, overflowLabel: overflowLabel,
+		observers: append([]basecollector.OverflowObserver(nil), observers...),
 	}, nil
 }
 
@@ -67,32 +68,15 @@ func (collector *Collector) Collect(
 	ctx context.Context,
 	reference time.Time,
 ) (cost.PartialSnapshot, error) {
-	queries, err := basecollector.BuildDailyAndMTDQueries(reference, cost.DimensionAccount)
-	if err != nil {
-		return cost.PartialSnapshot{}, err
-	}
-	for index := range queries {
-		queries[index].LinkedAccountIDs = append([]string(nil), collector.linkedAccountIDs...)
-	}
-	var collected []cost.Cost
-	for _, query := range queries {
-		if err := ctx.Err(); err != nil {
-			return cost.PartialSnapshot{}, err
-		}
-		values, err := collector.reader.ReadCosts(ctx, query)
-		if err != nil {
-			return cost.PartialSnapshot{}, fmt.Errorf("collect %s account cost: %w", query.Window, err)
-		}
-		if err := validateAccountCosts(values); err != nil {
-			return cost.PartialSnapshot{}, fmt.Errorf("validate %s account cost: %w", query.Window, err)
-		}
-		values, err = basecollector.LimitDimensions(values, collector.seriesLimit, OtherAccount, collector.observers...)
-		if err != nil {
-			return cost.PartialSnapshot{}, fmt.Errorf("limit %s account cost: %w", query.Window, err)
-		}
-		collected = append(collected, values...)
-	}
-	return cost.NewSnapshot(collected, nil), nil
+	return basecollector.CollectGrouped(
+		ctx, reference, cost.DimensionAccount, collector.seriesLimit, collector.overflowLabel,
+		collector.reader,
+		func(query *ports.CostQuery) {
+			query.LinkedAccountIDs = append([]string(nil), collector.linkedAccountIDs...)
+		},
+		validateAccountCosts,
+		collector.observers...,
+	)
 }
 
 // validateAccountCosts rejects malformed provider dimensions without

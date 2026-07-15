@@ -18,7 +18,10 @@ const metricUnblendedCost = "UnblendedCost"
 var ErrInvalidResponse = errors.New("invalid Cost Explorer response")
 
 // MapUsage converts complete AWS results into provider-independent cost values.
-func MapUsage(results []cetypes.ResultByTime, query ports.CostQuery) ([]cost.Cost, error) {
+func MapUsage(results []cetypes.ResultByTime, query ports.CostQuery, costMetric string) ([]cost.Cost, error) {
+	if costMetric == "" {
+		return nil, fmt.Errorf("%w: cost metric must not be empty", ErrInvalidResponse)
+	}
 	if query.GroupBy != cost.DimensionTotal &&
 		query.GroupBy != cost.DimensionService &&
 		query.GroupBy != cost.DimensionRegion &&
@@ -33,7 +36,7 @@ func MapUsage(results []cetypes.ResultByTime, query ports.CostQuery) ([]cost.Cos
 		}
 		if query.GroupBy == cost.DimensionTotal {
 			dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
-			entry, err := mapCost(period, query.Window, dimension, result.Total)
+			entry, err := mapCost(period, query.Window, dimension, result.Total, costMetric)
 			if err != nil {
 				return nil, fmt.Errorf("map result %d: %w", resultIndex, err)
 			}
@@ -48,7 +51,7 @@ func MapUsage(results []cetypes.ResultByTime, query ports.CostQuery) ([]cost.Cos
 			if err != nil {
 				return nil, fmt.Errorf("map result %d group %d: %w", resultIndex, groupIndex, err)
 			}
-			entry, err := mapCost(period, query.Window, dimension, group.Metrics)
+			entry, err := mapCost(period, query.Window, dimension, group.Metrics, costMetric)
 			if err != nil {
 				return nil, fmt.Errorf("map result %d group %d: %w", resultIndex, groupIndex, err)
 			}
@@ -76,10 +79,10 @@ func mapPeriod(interval *cetypes.DateInterval) (cost.Period, error) {
 }
 
 // mapCost converts one AWS metric map to a domain cost.
-func mapCost(period cost.Period, window cost.Window, dimension cost.Dimension, metrics map[string]cetypes.MetricValue) (cost.Cost, error) {
-	metric, exists := metrics[metricUnblendedCost]
+func mapCost(period cost.Period, window cost.Window, dimension cost.Dimension, metrics map[string]cetypes.MetricValue, costMetric string) (cost.Cost, error) {
+	metric, exists := metrics[costMetric]
 	if !exists {
-		return cost.Cost{}, fmt.Errorf("%w: missing UnblendedCost", ErrInvalidResponse)
+		return cost.Cost{}, fmt.Errorf("%w: missing %s", ErrInvalidResponse, costMetric)
 	}
 	amount, err := cost.ParseMoney(aws.ToString(metric.Amount), aws.ToString(metric.Unit))
 	if err != nil {

@@ -62,3 +62,14 @@ func TestEnabledCollectorsHonorsFeatureFlags(t *testing.T) {
 		t.Fatalf("enabledCollectors(disabled) = %v, want nil", got)
 	}
 }
+
+func TestUnfilteredGroupedCollectorsDetectsMissingFilters(t *testing.T) {
+	value := config.Default()
+	if !unfilteredGroupedCollectors(value) {
+		t.Fatal("default grouped collectors without filters should warn")
+	}
+	value.CostExplorer.Filters.Services = []string{"Amazon EC2"}
+	if unfilteredGroupedCollectors(value) {
+		t.Fatal("filters.services should suppress unfiltered warning")
+	}
+}

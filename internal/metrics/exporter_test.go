@@ -35,6 +35,7 @@ func TestExporterCollectsStatusEventsAndBoundedLabels(t *testing.T) {
 	subject.ObserveOverflow("service", 5)
 	subject.ObservePaginationPage("GetCostAndUsage")
 	subject.ObserveCachePublishError("total", "publish")
+	subject.ObserveSchedulerShutdownTimeout()
 
 	registry := prometheus.NewPedanticRegistry()
 	registry.MustRegister(subject)
@@ -61,8 +62,8 @@ aws_cost_exporter_snapshot_series{collector="total"} 4
 		t.Fatalf("GatherAndCompare() error = %v", err)
 	}
 	families, err := registry.Gather()
-	if err != nil || len(families) != 15 {
-		t.Fatalf("Gather() returned %d families, %v; want 15", len(families), err)
+	if err != nil || len(families) != 16 {
+		t.Fatalf("Gather() returned %d families, %v; want 16", len(families), err)
 	}
 	checks := []struct {
 		name   string
@@ -77,6 +78,7 @@ aws_cost_exporter_snapshot_series{collector="total"} 4
 		{"overflow", subject.overflow.WithLabelValues("service"), 5},
 		{"pagination", subject.pagination.WithLabelValues("GetCostAndUsage"), 1},
 		{"cache publish", subject.cachePublishErrors.WithLabelValues("total", "publish"), 1},
+		{"shutdown timeout", subject.shutdownTimeouts, 1},
 	}
 	for _, check := range checks {
 		if got := testutil.ToFloat64(check.metric); got != check.want {

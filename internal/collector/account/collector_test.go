@@ -25,7 +25,7 @@ func TestCollectorUsesAllowlistAndUTCWindows(t *testing.T) {
 		},
 		cost.WindowMonthToDate: {{id: "111111111111", amount: 100}},
 	}}
-	subject, err := New(reader, allowlist, 3)
+	subject, err := New(reader, allowlist, 3, collector.DefaultOverflowLabel)
 	if err != nil {
 		t.Fatalf("New() returned an unexpected error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestCollectorUsesAllowlistAndUTCWindows(t *testing.T) {
 	assertQuery(t, reader.queries[1], cost.WindowMonthToDate, "2026-07-01", "2026-07-13")
 	costs := snapshot.Costs()
 	if len(costs) != 4 || costs[0].Dimension.Value() != "333333333333" ||
-		costs[2].Dimension.Value() != OtherAccount || costs[2].Amount.Amount() != 30 ||
+		costs[2].Dimension.Value() != collector.DefaultOverflowLabel || costs[2].Amount.Amount() != 30 ||
 		costs[0].Amount.Currency() != "USD" {
 		t.Fatalf("Collect() costs = %#v, want bounded account costs", costs)
 	}
@@ -50,14 +50,14 @@ func TestCollectorUsesAllowlistAndUTCWindows(t *testing.T) {
 // TestCollectorRejectsInvalidAccountIDs verifies fixed safe errors for both
 // configuration and provider data.
 func TestCollectorRejectsInvalidAccountIDs(t *testing.T) {
-	if subject, err := New(&recordingReader{}, []string{"not-an-account"}, 1); subject != nil || !errors.Is(err, ErrInvalidAccountID) ||
+	if subject, err := New(&recordingReader{}, []string{"not-an-account"}, 1, collector.DefaultOverflowLabel); subject != nil || !errors.Is(err, ErrInvalidAccountID) ||
 		strings.Contains(err.Error(), "not-an-account") {
 		t.Fatalf("New(invalid) = %#v, %v; want safe ErrInvalidAccountID", subject, err)
 	}
 	reader := &recordingReader{values: map[cost.Window][]accountValue{
 		cost.WindowDaily: {{id: "private-invalid-id", amount: 1}},
 	}}
-	subject, _ := New(reader, nil, 10)
+	subject, _ := New(reader, nil, 10, collector.DefaultOverflowLabel)
 	snapshot, err := subject.Collect(context.Background(), time.Now())
 	if !errors.Is(err, ErrInvalidAccountID) || strings.Contains(err.Error(), "private-invalid-id") ||
 		len(snapshot.Costs()) != 0 {
@@ -70,7 +70,7 @@ func TestCollectorRejectsInvalidAccountIDs(t *testing.T) {
 func TestCollectorRejectsPartialResults(t *testing.T) {
 	for _, window := range []cost.Window{cost.WindowDaily, cost.WindowMonthToDate} {
 		reader := &recordingReader{failWindow: window}
-		subject, _ := New(reader, nil, 10)
+		subject, _ := New(reader, nil, 10, collector.DefaultOverflowLabel)
 		snapshot, err := subject.Collect(context.Background(), time.Now())
 		if err == nil || len(snapshot.Costs()) != 0 {
 			t.Fatalf("failure for %q returned error=%v costs=%#v", window, err, snapshot.Costs())
@@ -80,10 +80,10 @@ func TestCollectorRejectsPartialResults(t *testing.T) {
 
 // TestNewRejectsNilReader verifies invalid dependency injection fails fast.
 func TestNewRejectsNilReader(t *testing.T) {
-	if subject, err := New(nil, nil, 1); subject != nil || !errors.Is(err, ErrNilReader) {
+	if subject, err := New(nil, nil, 1, collector.DefaultOverflowLabel); subject != nil || !errors.Is(err, ErrNilReader) {
 		t.Fatalf("New(nil) = %#v, %v; want ErrNilReader", subject, err)
 	}
-	if subject, err := New(&recordingReader{}, nil, 0); subject != nil ||
+	if subject, err := New(&recordingReader{}, nil, 0, collector.DefaultOverflowLabel); subject != nil ||
 		!errors.Is(err, ErrInvalidSeriesLimit) {
 		t.Fatalf("New(reader, nil, 0) = %#v, %v; want ErrInvalidSeriesLimit", subject, err)
 	}

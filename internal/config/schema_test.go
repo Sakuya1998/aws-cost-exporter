@@ -36,7 +36,7 @@ func TestDefaultReturnsExpectedConfig(t *testing.T) {
 			JitterRatio: 0.10,
 			Forecast:    config.ForecastConfig{Enabled: true, PredictionInterval: 80},
 			Collectors:  config.CollectorsConfig{Total: true, Service: true, Region: true, Account: true},
-			Dimensions:  config.DimensionsConfig{SeriesLimit: 1000, Overflow: "aggregate"},
+			Dimensions:  config.DimensionsConfig{SeriesLimit: 1000, Overflow: "aggregate", OverflowLabel: "__other__"},
 			Filters: config.FiltersConfig{
 				LinkedAccountIDs: []string{}, Services: []string{}, Regions: []string{},
 			},

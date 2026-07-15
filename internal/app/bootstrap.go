@@ -52,7 +52,7 @@ func Run(ctx context.Context, value config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	usage, err := ce.NewUsageAdapter(instrumented, value.CostExplorer.MaxPages, telemetry)
+	usage, err := ce.NewUsageAdapter(instrumented, value.CostExplorer.MaxPages, value.CostExplorer.CostMetric, telemetry)
 	if err != nil {
 		return err
 	}
@@ -65,19 +65,20 @@ func Run(ctx context.Context, value config.Config, logger *slog.Logger) error {
 		filters: value.CostExplorer.Filters,
 	}
 	registry := basecollector.NewRegistry()
+	overflowLabel := value.CostExplorer.Dimensions.OverflowLabel
 	factories := []struct {
 		name string
 		new  basecollector.Factory
 	}{
 		{total.Name, func() (basecollector.Collector, error) { return total.New(reader) }},
 		{service.Name, func() (basecollector.Collector, error) {
-			return service.New(reader, value.CostExplorer.Dimensions.SeriesLimit, telemetry)
+			return service.New(reader, value.CostExplorer.Dimensions.SeriesLimit, overflowLabel, telemetry)
 		}},
 		{region.Name, func() (basecollector.Collector, error) {
-			return region.New(reader, value.CostExplorer.Dimensions.SeriesLimit, telemetry)
+			return region.New(reader, value.CostExplorer.Dimensions.SeriesLimit, overflowLabel, telemetry)
 		}},
 		{account.Name, func() (basecollector.Collector, error) {
-			return account.New(reader, value.CostExplorer.Filters.LinkedAccountIDs, value.CostExplorer.Dimensions.SeriesLimit, telemetry)
+			return account.New(reader, value.CostExplorer.Filters.LinkedAccountIDs, value.CostExplorer.Dimensions.SeriesLimit, overflowLabel, telemetry)
 		}},
 		{forecast.Name, func() (basecollector.Collector, error) {
 			return forecast.New(reader, value.CostExplorer.Forecast.PredictionInterval)
@@ -131,7 +132,10 @@ func Run(ctx context.Context, value config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 	logger.Info("aws-cost-exporter started", "address", listener.Addr().String())
-	return RunServices(ctx, runner, server, listener, value.Server.ShutdownTimeout, logger)
+	if unfilteredGroupedCollectors(value) {
+		logger.Warn("grouped collectors enabled without cost_explorer.filters; Cost Explorer may return many pages per query")
+	}
+	return RunServices(ctx, runner, server, listener, value.Server.ShutdownTimeout, logger, telemetry.ObserveSchedulerShutdownTimeout)
 }
 
 type schedulerService interface {
@@ -146,6 +150,7 @@ func RunServices(
 	listener net.Listener,
 	schedulerShutdownTimeout time.Duration,
 	logger *slog.Logger,
+	onSchedulerShutdownTimeout func(),
 ) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -155,7 +160,7 @@ func RunServices(
 	select {
 	case err := <-serverDone:
 		cancel()
-		waitForScheduler(runner, schedulerDone, schedulerShutdownTimeout, logger)
+		waitForScheduler(schedulerDone, schedulerShutdownTimeout, logger, onSchedulerShutdownTimeout)
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -163,7 +168,7 @@ func RunServices(
 	case <-ctx.Done():
 		cancel()
 		shutdownErr := server.Shutdown(context.Background())
-		waitForScheduler(runner, schedulerDone, schedulerShutdownTimeout, logger)
+		waitForScheduler(schedulerDone, schedulerShutdownTimeout, logger, onSchedulerShutdownTimeout)
 		serveErr := <-serverDone
 		if errors.Is(serveErr, http.ErrServerClosed) {
 			serveErr = nil
@@ -172,7 +177,7 @@ func RunServices(
 	}
 }
 
-func waitForScheduler(_ schedulerService, done <-chan struct{}, timeout time.Duration, logger *slog.Logger) {
+func waitForScheduler(done <-chan struct{}, timeout time.Duration, logger *slog.Logger, onTimeout func()) {
 	if timeout <= 0 {
 		<-done
 		return
@@ -185,7 +190,20 @@ func waitForScheduler(_ schedulerService, done <-chan struct{}, timeout time.Dur
 		if logger != nil {
 			logger.Warn("scheduler did not stop before shutdown timeout", "timeout", timeout)
 		}
+		if onTimeout != nil {
+			onTimeout()
+		}
 	}
+}
+
+func unfilteredGroupedCollectors(value config.Config) bool {
+	collectors := value.CostExplorer.Collectors
+	grouped := collectors.Service || collectors.Region || collectors.Account
+	filters := value.CostExplorer.Filters
+	return grouped &&
+		len(filters.LinkedAccountIDs) == 0 &&
+		len(filters.Services) == 0 &&
+		len(filters.Regions) == 0
 }
 
 func enabledCollectors(value config.Config) []string {

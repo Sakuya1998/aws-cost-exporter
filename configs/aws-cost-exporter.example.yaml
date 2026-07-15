@@ -1,5 +1,5 @@
 # This minimal runnable configuration shows process and AWS client settings.
-# Omitted Cost Explorer, cache, scheduler, and telemetry fields use safe defaults.
+# Omitted fields use safe defaults documented in README.md.
 server:
   listen_address: ":8080"
   metrics_path: "/metrics"
@@ -29,3 +29,42 @@ aws:
   rate_limit:
     requests_per_second: 0.5
     burst: 1
+
+cost_explorer:
+  enabled: true
+  cost_metric: UnblendedCost
+  max_pages: 50
+  refresh_interval: 6h
+  startup_refresh: true
+  jitter_ratio: 0.10
+  forecast:
+    enabled: true
+    prediction_interval: 80
+  collectors:
+    total: true
+    service: true
+    region: true
+    account: true
+  dimensions:
+    series_limit: 1000
+    overflow: aggregate
+    overflow_label: __other__
+  filters:
+    linked_account_ids: []
+    services: []
+    regions: []
+
+cache:
+  freshness_ttl: 12h
+  stale_after: 24h
+
+scheduler:
+  max_concurrency: 2
+  failure_backoff:
+    initial: 1m
+    max: 30m
+    multiplier: 2
+
+telemetry:
+  include_go_collector: true
+  include_process_collector: true

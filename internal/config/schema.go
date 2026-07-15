@@ -92,8 +92,9 @@ type CollectorsConfig struct {
 
 // DimensionsConfig controls grouped-series cardinality.
 type DimensionsConfig struct {
-	SeriesLimit int    `mapstructure:"series_limit" yaml:"series_limit"`
-	Overflow    string `mapstructure:"overflow" yaml:"overflow"`
+	SeriesLimit   int    `mapstructure:"series_limit" yaml:"series_limit"`
+	Overflow      string `mapstructure:"overflow" yaml:"overflow"`
+	OverflowLabel string `mapstructure:"overflow_label" yaml:"overflow_label"`
 }
 
 // FiltersConfig restricts Cost Explorer query dimensions.
@@ -150,7 +151,7 @@ func Default() Config {
 			JitterRatio: 0.10,
 			Forecast:    ForecastConfig{Enabled: true, PredictionInterval: 80},
 			Collectors:  CollectorsConfig{Total: true, Service: true, Region: true, Account: true},
-			Dimensions:  DimensionsConfig{SeriesLimit: 1000, Overflow: "aggregate"},
+			Dimensions:  DimensionsConfig{SeriesLimit: 1000, Overflow: "aggregate", OverflowLabel: "__other__"},
 			Filters: FiltersConfig{
 				LinkedAccountIDs: []string{}, Services: []string{}, Regions: []string{},
 			},

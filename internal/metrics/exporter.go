@@ -30,6 +30,7 @@ type Exporter struct {
 	up, success, attempt, age, series, buildInfo  *prometheus.Desc
 	refresh, requests, retries, skipped, overflow *prometheus.CounterVec
 	pagination, cachePublishErrors                  *prometheus.CounterVec
+	shutdownTimeouts                                prometheus.Counter
 	refreshDuration, requestDuration              *prometheus.HistogramVec
 	events                                        []prometheus.Collector
 }
@@ -64,11 +65,16 @@ func NewExporter(reader StatusReader, clock ports.Clock, build version.Info, nam
 	exporter.overflow = counter("dimension_overflow_values_total", "Dimension values processed into overflow during collection attempts.", []string{"dimension"})
 	exporter.pagination = counter("pagination_pages_total", "Cost Explorer pagination pages read successfully.", []string{"operation"})
 	exporter.cachePublishErrors = counter("cache_publish_errors_total", "Cache publish or failure-record errors.", []string{"collector", "operation"})
+	exporter.shutdownTimeouts = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "aws_cost_exporter_scheduler_shutdown_timeouts_total",
+		Help: "Scheduler shutdown waits that exceeded server.shutdown_timeout.",
+	})
 	exporter.refreshDuration = histogram("refresh_duration_seconds", "Collector refresh duration.", []string{"collector"}, []float64{1, 5, 10, 30, 60, 120, 300})
 	exporter.requestDuration = histogram("aws_api_request_duration_seconds", "Cost Explorer API request duration.", []string{"operation"}, []float64{.1, .5, 1, 2, 5, 10, 30, 60})
 	exporter.events = []prometheus.Collector{
 		exporter.refresh, exporter.requests, exporter.retries, exporter.skipped,
 		exporter.overflow, exporter.pagination, exporter.cachePublishErrors,
+		exporter.shutdownTimeouts,
 		exporter.refreshDuration, exporter.requestDuration,
 	}
 	return exporter, nil
@@ -154,6 +160,11 @@ func (exporter *Exporter) ObserveCachePublishError(collector, operation string) 
 		return
 	}
 	exporter.cachePublishErrors.WithLabelValues(collector, bounded(operation, "publish", "record_failure")).Inc()
+}
+
+// ObserveSchedulerShutdownTimeout records one scheduler shutdown timeout.
+func (exporter *Exporter) ObserveSchedulerShutdownTimeout() {
+	exporter.shutdownTimeouts.Inc()
 }
 
 func (exporter *Exporter) isKnown(name string) bool { _, exists := exporter.known[name]; return exists }

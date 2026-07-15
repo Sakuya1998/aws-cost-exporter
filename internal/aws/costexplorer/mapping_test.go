@@ -26,7 +26,7 @@ func TestMapUsageMapsTotalAndGroupedCosts(t *testing.T) {
 	for _, test := range tests {
 		mapped, err := MapUsage([]cetypes.ResultByTime{test.result}, ports.CostQuery{
 			Window: cost.WindowDaily, GroupBy: test.groupBy,
-		})
+		}, metricUnblendedCost)
 		if err != nil {
 			t.Fatalf("%s: MapUsage() returned an unexpected error: %v", test.name, err)
 		}
@@ -54,7 +54,7 @@ func TestMapUsageRejectsInvalidResults(t *testing.T) {
 	for _, test := range tests {
 		mapped, err := MapUsage([]cetypes.ResultByTime{test.result}, ports.CostQuery{
 			Window: cost.WindowDaily, GroupBy: test.groupBy,
-		})
+		}, metricUnblendedCost)
 		if len(mapped) != 0 || !errors.Is(err, test.wantErr) {
 			t.Fatalf("%s: MapUsage() = %#v, %v; want no costs and %v", test.name, mapped, err, test.wantErr)
 		}

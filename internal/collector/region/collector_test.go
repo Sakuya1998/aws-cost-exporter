@@ -23,7 +23,7 @@ func TestCollectorNormalizesAndLimitsRegions(t *testing.T) {
 		},
 		cost.WindowMonthToDate: {{name: "", amount: 100}},
 	}}
-	subject, _ := New(reader, 3)
+	subject, _ := New(reader, 3, collector.DefaultOverflowLabel)
 	snapshot, err := subject.Collect(
 		context.Background(),
 		time.Date(2026, 7, 13, 1, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60)),
@@ -37,7 +37,7 @@ func TestCollectorNormalizesAndLimitsRegions(t *testing.T) {
 	if err != nil || len(costs) != 4 {
 		t.Fatalf("Collect() returned error=%v costs=%#v, want four costs", err, costs)
 	}
-	assertCost(t, costs[0], cost.WindowDaily, OtherRegion, 25)
+	assertCost(t, costs[0], cost.WindowDaily, collector.DefaultOverflowLabel, 25)
 	assertCost(t, costs[1], cost.WindowDaily, "eu-west-1", 30)
 	assertCost(t, costs[2], cost.WindowDaily, "us-east-1", 40)
 	assertCost(t, costs[3], cost.WindowMonthToDate, "global", 100)
@@ -48,13 +48,13 @@ func TestCollectorBreaksAmountTiesByRegion(t *testing.T) {
 	reader := &recordingReader{values: map[cost.Window][]regionValue{
 		cost.WindowDaily: {{name: "b", amount: 10}, {name: "a", amount: 10}, {name: "c", amount: 1}},
 	}}
-	subject, _ := New(reader, 2)
+	subject, _ := New(reader, 2, collector.DefaultOverflowLabel)
 	snapshot, err := subject.Collect(context.Background(), time.Now())
 	costs := snapshot.Costs()
 	if err != nil || len(costs) != 2 {
 		t.Fatalf("Collect() returned error=%v costs=%#v, want two costs", err, costs)
 	}
-	assertCost(t, costs[0], cost.WindowDaily, OtherRegion, 11)
+	assertCost(t, costs[0], cost.WindowDaily, collector.DefaultOverflowLabel, 11)
 	assertCost(t, costs[1], cost.WindowDaily, "a", 10)
 }
 
@@ -63,7 +63,7 @@ func TestCollectorBreaksAmountTiesByRegion(t *testing.T) {
 func TestCollectorRejectsPartialOrMixedResults(t *testing.T) {
 	for _, window := range []cost.Window{cost.WindowDaily, cost.WindowMonthToDate} {
 		reader := &recordingReader{failWindow: window}
-		subject, _ := New(reader, 10)
+		subject, _ := New(reader, 10, collector.DefaultOverflowLabel)
 		snapshot, err := subject.Collect(context.Background(), time.Now())
 		if err == nil || len(snapshot.Costs()) != 0 {
 			t.Fatalf("failure for %q returned error=%v costs=%#v", window, err, snapshot.Costs())
@@ -74,7 +74,7 @@ func TestCollectorRejectsPartialOrMixedResults(t *testing.T) {
 			{name: "us-east-1", amount: 1}, {name: "eu-west-1", amount: 1, currency: "EUR"},
 		},
 	}}
-	subject, _ := New(reader, 1)
+	subject, _ := New(reader, 1, collector.DefaultOverflowLabel)
 	snapshot, err := subject.Collect(context.Background(), time.Now())
 	if !errors.Is(err, ErrMixedCurrency) || len(snapshot.Costs()) != 0 {
 		t.Fatalf("mixed currencies returned error=%v costs=%#v", err, snapshot.Costs())
@@ -83,10 +83,10 @@ func TestCollectorRejectsPartialOrMixedResults(t *testing.T) {
 
 // TestNewRejectsInvalidDependencies verifies construction fails fast.
 func TestNewRejectsInvalidDependencies(t *testing.T) {
-	if subject, err := New(nil, 1); subject != nil || !errors.Is(err, ErrNilReader) {
+	if subject, err := New(nil, 1, collector.DefaultOverflowLabel); subject != nil || !errors.Is(err, ErrNilReader) {
 		t.Fatalf("New(nil, 1) = %#v, %v; want ErrNilReader", subject, err)
 	}
-	if subject, err := New(&recordingReader{}, 0); subject != nil || !errors.Is(err, ErrInvalidSeriesLimit) {
+	if subject, err := New(&recordingReader{}, 0, collector.DefaultOverflowLabel); subject != nil || !errors.Is(err, ErrInvalidSeriesLimit) {
 		t.Fatalf("New(reader, 0) = %#v, %v; want ErrInvalidSeriesLimit", subject, err)
 	}
 }

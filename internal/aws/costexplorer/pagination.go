@@ -56,6 +56,9 @@ func (paginator *UsagePaginator) Read(
 
 	var results []cetypes.ResultByTime
 	for page := 1; ; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if page > paginator.maxPages {
 			return nil, fmt.Errorf("%w: limit %d", ErrPageLimitExceeded, paginator.maxPages)
 		}

@@ -19,19 +19,23 @@ var ErrNilUsageAPI = errors.New("cost explorer usage API must not be nil")
 
 // UsageAdapter implements the normalized, all-or-nothing cost reader port.
 type UsageAdapter struct {
-	paginator *UsagePaginator
+	paginator  *UsagePaginator
+	costMetric string
 }
 
 // NewUsageAdapter validates and constructs a usage adapter.
-func NewUsageAdapter(api API, maxPages int, observer Observer) (*UsageAdapter, error) {
+func NewUsageAdapter(api API, maxPages int, costMetric string, observer Observer) (*UsageAdapter, error) {
 	if api == nil {
 		return nil, ErrNilUsageAPI
+	}
+	if costMetric == "" {
+		return nil, fmt.Errorf("%w: cost metric must not be empty", ErrInvalidResponse)
 	}
 	paginator, err := NewUsagePaginator(api, maxPages, observer)
 	if err != nil {
 		return nil, err
 	}
-	return &UsageAdapter{paginator: paginator}, nil
+	return &UsageAdapter{paginator: paginator, costMetric: costMetric}, nil
 }
 
 // ReadCosts serializes a domain query, reads every page, and maps the result.
@@ -42,7 +46,7 @@ func (adapter *UsageAdapter) ReadCosts(ctx context.Context, query ports.CostQuer
 			End:   aws.String(query.Period.End().Format(time.DateOnly)),
 		},
 		Granularity: cetypes.GranularityDaily,
-		Metrics:     []string{metricUnblendedCost},
+		Metrics:     []string{adapter.costMetric},
 		Filter:      usageFilter(query),
 	}
 	if query.GroupBy != cost.DimensionTotal {
@@ -58,7 +62,7 @@ func (adapter *UsageAdapter) ReadCosts(ctx context.Context, query ports.CostQuer
 	if err != nil {
 		return nil, ClassifyError(err)
 	}
-	return MapUsage(results, query)
+	return MapUsage(results, query, adapter.costMetric)
 }
 
 func usageDimension(kind cost.DimensionKind) (cetypes.Dimension, error) {

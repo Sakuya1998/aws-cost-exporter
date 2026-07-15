@@ -131,6 +131,58 @@ func TestNewUsagePaginatorRejectsInvalidLimit(t *testing.T) {
 	}
 }
 
+func TestReadCancelsBetweenPages(t *testing.T) {
+	notify := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	api := &stallAfterFirstPageAPI{notify: notify, cancel: cancel}
+	paginator, err := NewUsagePaginator(api, 50, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := paginator.Read(ctx, validUsageInput()); done <- err }()
+	<-notify
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Read() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Read() did not return after cancellation")
+	}
+	if api.calls != 1 {
+		t.Fatalf("GetCostAndUsage calls = %d, want 1", api.calls)
+	}
+}
+
+type stallAfterFirstPageAPI struct {
+	notify chan struct{}
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (api *stallAfterFirstPageAPI) GetCostAndUsage(ctx context.Context, _ *awscostexplorer.GetCostAndUsageInput, _ ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostAndUsageOutput, error) {
+	api.calls++
+	if api.calls == 1 {
+		api.cancel()
+		close(api.notify)
+		return &awscostexplorer.GetCostAndUsageOutput{
+			ResultsByTime: []cetypes.ResultByTime{{
+				TimePeriod: &cetypes.DateInterval{Start: aws.String("2026-07-01"), End: aws.String("2026-07-02")},
+				Total: map[string]cetypes.MetricValue{
+					"UnblendedCost": {Amount: aws.String("1"), Unit: aws.String("USD")},
+				},
+			}},
+			NextPageToken: aws.String("next"),
+		}, nil
+	}
+	return nil, ctx.Err()
+}
+
+func (*stallAfterFirstPageAPI) GetCostForecast(context.Context, *awscostexplorer.GetCostForecastInput, ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostForecastOutput, error) {
+	return nil, errors.New("unexpected forecast call")
+}
+
 // pageResponse is one fake paginated API response.
 type pageResponse struct {
 	output *awscostexplorer.GetCostAndUsageOutput

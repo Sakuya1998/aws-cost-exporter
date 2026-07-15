@@ -30,14 +30,18 @@ Never aggregate different `currency` values. The daily gauge is UTC scrape
 history, not historical billing rows. Forecast covers today through month end;
 month-end estimates must subtract today's amount from MTD before adding it.
 
-Dimension values beyond the configured limit are folded into `__other__`
-without losing totals. `series_limit` caps exported Prometheus series only;
+Dimension values beyond the configured limit are folded into
+`cost_explorer.dimensions.overflow_label` (default `__other__`) without losing
+totals. `series_limit` caps exported Prometheus series only;
 Cost Explorer may still return more groups. Inspect
 `aws_cost_exporter_dimension_overflow_values_total` and
 `aws_cost_exporter_pagination_pages_total` before raising limits. Pagination
 beyond `cost_explorer.max_pages` fails the collector refresh.
-
-## Deployment
+Large grouped accounts should set `cost_explorer.filters` to reduce Cost
+Explorer pages; `series_limit` only bounds exported Prometheus series.
+Inspect `aws_cost_exporter_scheduler_shutdown_timeouts_total` when shutdown
+times out while collectors are still running; increase `server.shutdown_timeout`
+or reduce refresh scope.
 
 Keep one replica unless duplicate AWS calls and Prometheus targets are intended.
 The debug endpoints are disabled by default; when enabled, protect them with a

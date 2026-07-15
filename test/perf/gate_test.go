@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/app"
+	basecollector "github.com/sakuya1998/aws-cost-exporter/internal/collector"
 	"github.com/sakuya1998/aws-cost-exporter/internal/collector/account"
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
@@ -34,7 +35,7 @@ func TestAccountCollectorSeriesBudgetForFixtureSizes(t *testing.T) {
 	mtd, _ := cost.NewPeriod(month.Start(), day.End())
 	for _, count := range []int{1, 100, 1001} {
 		t.Run(fmt.Sprintf("%d", count), func(t *testing.T) {
-			subject, _ := account.New(&budgetReader{count: count}, nil, 1000)
+			subject, _ := account.New(&budgetReader{count: count}, nil, 1000, basecollector.DefaultOverflowLabel)
 			snapshot, err := subject.Collect(context.Background(), reference)
 			if err != nil {
 				t.Fatal(err)

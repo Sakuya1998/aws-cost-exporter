@@ -30,9 +30,16 @@ Per refresh, estimate Cost Explorer calls as
 `collectors × 2 × pages + forecast` (for example 4 pages with total+service
 enabled ≈ 16 `GetCostAndUsage` plus forecast when enabled).
 `cost_explorer.dimensions.series_limit` caps Prometheus export series only; it
-does not limit Cost Explorer requests. Service, region, and account families
-honor `series_limit`; `total` and forecast metrics expand naturally by
-`currency` label and are not subject to `series_limit`.
+does not limit Cost Explorer requests. Use `cost_explorer.filters` on large
+accounts to reduce grouped pages before collection.
+`cost_explorer.cost_metric` is wired to Cost Explorer requests (only
+`UnblendedCost` is supported in v0.1). `cost_explorer.dimensions.overflow_label`
+controls the aggregate label when `overflow: aggregate` (default `__other__`).
+Service, region, and account families honor `series_limit`; `total` and forecast
+metrics expand naturally by `currency` label and are not subject to `series_limit`.
+Set `server.shutdown_timeout` high enough for paginated refreshes:
+`collectors × 2 × max_pages / requests_per_second` is a conservative upper
+bound before scheduler shutdown may time out.
 AWS updates billing data only periodically, and delayed charges can be
 backfilled. Metrics are operational observations, not accounting records.
 Never sum different `currency` label values.
@@ -162,6 +169,7 @@ aws_cost_exporter_last_success_timestamp_seconds, aws_cost_exporter_last_attempt
 aws_cost_exporter_snapshot_series, aws_cost_exporter_refresh_total
 aws_cost_exporter_aws_api_requests_total, aws_cost_exporter_aws_api_retries_total
 aws_cost_exporter_pagination_pages_total, aws_cost_exporter_cache_publish_errors_total
+aws_cost_exporter_scheduler_shutdown_timeouts_total
 aws_cost_exporter_scheduler_skipped_runs_total
 aws_cost_exporter_dimension_overflow_values_total
 aws_cost_exporter_refresh_duration_seconds, aws_cost_exporter_aws_api_request_duration_seconds

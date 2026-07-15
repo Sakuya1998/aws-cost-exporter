@@ -24,7 +24,7 @@ func TestCollectorLimitsServicesAndPreservesTotal(t *testing.T) {
 		cost.WindowMonthToDate: {{name: "S", amount: 100}},
 	}}
 	observers := [2]overflowObserver{}
-	subject, _ := New(reader, 3, &observers[0], &observers[1])
+	subject, _ := New(reader, 3, collector.DefaultOverflowLabel, &observers[0], &observers[1])
 	snapshot, err := subject.Collect(
 		context.Background(),
 		time.Date(2026, 7, 13, 1, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60)),
@@ -40,7 +40,7 @@ func TestCollectorLimitsServicesAndPreservesTotal(t *testing.T) {
 	}
 	assertCost(t, costs[0], cost.WindowDaily, "B", 40)
 	assertCost(t, costs[1], cost.WindowDaily, "C", 30)
-	assertCost(t, costs[2], cost.WindowDaily, OtherService, 30)
+	assertCost(t, costs[2], cost.WindowDaily, collector.DefaultOverflowLabel, 30)
 	assertCost(t, costs[3], cost.WindowMonthToDate, "S", 100)
 	if observers[0] != (overflowObserver{dimension: "service", count: 2}) || observers[1] != observers[0] {
 		t.Fatalf("overflow observations = %#v, want two service/2 records", observers)
@@ -52,21 +52,21 @@ func TestCollectorBreaksAmountTiesByService(t *testing.T) {
 	reader := &recordingReader{values: map[cost.Window][]serviceValue{
 		cost.WindowDaily: {{name: "B", amount: 10}, {name: "A", amount: 10}, {name: "C", amount: 1}},
 	}}
-	subject, _ := New(reader, 2)
+	subject, _ := New(reader, 2, collector.DefaultOverflowLabel)
 	snapshot, err := subject.Collect(context.Background(), time.Now())
 	costs := snapshot.Costs()
 	if err != nil || len(costs) != 2 {
 		t.Fatalf("Collect() returned error=%v costs=%#v, want two costs", err, costs)
 	}
 	assertCost(t, costs[0], cost.WindowDaily, "A", 10)
-	assertCost(t, costs[1], cost.WindowDaily, OtherService, 11)
+	assertCost(t, costs[1], cost.WindowDaily, collector.DefaultOverflowLabel, 11)
 }
 
 // TestCollectorRejectsPartialResults verifies failed queries publish nothing.
 func TestCollectorRejectsPartialResults(t *testing.T) {
 	for _, window := range []cost.Window{cost.WindowDaily, cost.WindowMonthToDate} {
 		reader := &recordingReader{failWindow: window}
-		subject, _ := New(reader, 10)
+		subject, _ := New(reader, 10, collector.DefaultOverflowLabel)
 		snapshot, err := subject.Collect(context.Background(), time.Now())
 		if err == nil || len(snapshot.Costs()) != 0 {
 			t.Fatalf("failure for %q returned error=%v costs=%#v", window, err, snapshot.Costs())
@@ -77,15 +77,15 @@ func TestCollectorRejectsPartialResults(t *testing.T) {
 			{name: "USD service", amount: 1}, {name: "EUR service", amount: 1, currency: "EUR"},
 		},
 	}}
-	subject, _ := New(reader, 1)
+	subject, _ := New(reader, 1, collector.DefaultOverflowLabel)
 	snapshot, err := subject.Collect(context.Background(), time.Now())
 	if !errors.Is(err, ErrMixedCurrency) || len(snapshot.Costs()) != 0 {
 		t.Fatalf("mixed currencies returned error=%v costs=%#v", err, snapshot.Costs())
 	}
 	reader = &recordingReader{values: map[cost.Window][]serviceValue{
-		cost.WindowDaily: {{name: OtherService, amount: 1}},
+		cost.WindowDaily: {{name: collector.DefaultOverflowLabel, amount: 1}},
 	}}
-	subject, _ = New(reader, 10)
+	subject, _ = New(reader, 10, collector.DefaultOverflowLabel)
 	snapshot, err = subject.Collect(context.Background(), time.Now())
 	if !errors.Is(err, collector.ErrReservedDimension) || len(snapshot.Costs()) != 0 {
 		t.Fatalf("reserved service returned error=%v costs=%#v", err, snapshot.Costs())
@@ -94,10 +94,10 @@ func TestCollectorRejectsPartialResults(t *testing.T) {
 
 // TestNewRejectsInvalidDependencies verifies construction fails fast.
 func TestNewRejectsInvalidDependencies(t *testing.T) {
-	if subject, err := New(nil, 1); subject != nil || !errors.Is(err, ErrNilReader) {
+	if subject, err := New(nil, 1, collector.DefaultOverflowLabel); subject != nil || !errors.Is(err, ErrNilReader) {
 		t.Fatalf("New(nil, 1) = %#v, %v; want ErrNilReader", subject, err)
 	}
-	if subject, err := New(&recordingReader{}, 0); subject != nil || !errors.Is(err, ErrInvalidSeriesLimit) {
+	if subject, err := New(&recordingReader{}, 0, collector.DefaultOverflowLabel); subject != nil || !errors.Is(err, ErrInvalidSeriesLimit) {
 		t.Fatalf("New(reader, 0) = %#v, %v; want ErrInvalidSeriesLimit", subject, err)
 	}
 }

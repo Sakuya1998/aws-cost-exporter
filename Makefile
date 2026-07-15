@@ -18,6 +18,10 @@ build:
 test:
 	go test ./...
 
+# test-race runs the module tests with the race detector enabled.
+test-race:
+	go test -race ./...
+
 # lint applies the repository's static-analysis baseline.
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./...
