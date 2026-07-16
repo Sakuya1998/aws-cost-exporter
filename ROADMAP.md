@@ -7,6 +7,12 @@ maintainer capacity. Each release must preserve the exporter model described in
 
 ## v0.1: Cost Explorer exporter
 
+Status: feature-complete in v0.1.4. The v0.1.4 container image and Helm OCI
+chart signatures were independently verified on 2026-07-16; see the
+[verification record](docs/releases/v0.1.4-verification.md). Remaining manual
+and environment-specific release sign-off is tracked in the
+[v0.1 release checklist](docs/releases/v0.1-checklist.md).
+
 Goal: deliver a reliable single-credential Cost Explorer exporter.
 - Export current daily and month-to-date `UnblendedCost`.
 - Export separate total, service, region, and linked-account metric families.
@@ -20,6 +26,8 @@ Goal: deliver a reliable single-credential Cost Explorer exporter.
 Exit criteria include stable metric names, no AWS calls on the scrape path,
 bounded cardinality, race-free tests, integration coverage, signed release
 artifacts, and documented Cost Explorer API cost and data-latency semantics.
+CI enforces the automated quality, test, asset, and container gates for pull
+requests and pushes to `master`.
 
 ## v0.2: Multi-account operation
 

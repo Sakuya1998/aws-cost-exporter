@@ -117,6 +117,22 @@ func TestV01ChecklistReferencesAutomatedSuites(t *testing.T) {
 	}
 }
 
+func TestV014VerificationRecordPinsArtifactsAndIdentity(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", "docs", "releases", "v0.1.4-verification.md"))
+	for _, fragment := range []string{
+		"cosign v3.1.1",
+		"release.yml@refs/tags/v0.1.4",
+		"https://token.actions.githubusercontent.com",
+		"sha256:84c9004e6d8f0aaefa8de3e64171b623ff89b3ff70006cdda470d77a5d335e60",
+		"sha256:664425f6a5eeda58870d25db83c08b0af351c8ef0b825b412ca2ecee74f9d8e0",
+		"transparency log",
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("v0.1.4 verification record lacks %q", fragment)
+		}
+	}
+}
+
 func read(t *testing.T, path string) string {
 	t.Helper()
 	content, err := os.ReadFile(path)

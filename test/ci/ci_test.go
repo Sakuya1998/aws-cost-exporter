@@ -17,7 +17,7 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 		t.Fatalf("parse CI workflow: %v", err)
 	}
 	for _, fragment := range []string{
-		"pull_request:", "contents: read", "go-version: [\"1.24.x\", stable]",
+		"pull_request:", "branches: [master]", "contents: read", "go-version: [\"1.24.x\", stable]",
 		"gofmt -l", "goimports", "go vet ./...", "golangci-lint-action",
 		"version: v2.12.2",
 		"govulncheck", "gosec", "go test -race", "coverage < 75",
