@@ -3,6 +3,12 @@ package config
 
 import "time"
 
+const (
+	CredentialSourceDefaultChain = "default_chain"
+	CredentialSourceProfile      = "profile"
+	CredentialSourceStaticEnv    = "static_env"
+)
+
 // Config is the complete v0.2 application configuration.
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server" yaml:"server"`
@@ -41,12 +47,27 @@ type LogConfig struct {
 
 // AWSConfig controls base AWS SDK construction and request policy.
 type AWSConfig struct {
-	Region         string          `mapstructure:"region" yaml:"region"`
-	Profile        string          `mapstructure:"profile" yaml:"profile"`
-	RequestTimeout time.Duration   `mapstructure:"request_timeout" yaml:"request_timeout"`
-	Endpoints      EndpointsConfig `mapstructure:"endpoints" yaml:"endpoints"`
-	Retry          RetryConfig     `mapstructure:"retry" yaml:"retry"`
-	RateLimit      RateLimitConfig `mapstructure:"rate_limit" yaml:"rate_limit"`
+	Region         string            `mapstructure:"region" yaml:"region"`
+	Credentials    CredentialsConfig `mapstructure:"credentials" yaml:"credentials"`
+	RequestTimeout time.Duration     `mapstructure:"request_timeout" yaml:"request_timeout"`
+	Endpoints      EndpointsConfig   `mapstructure:"endpoints" yaml:"endpoints"`
+	Retry          RetryConfig       `mapstructure:"retry" yaml:"retry"`
+	RateLimit      RateLimitConfig   `mapstructure:"rate_limit" yaml:"rate_limit"`
+}
+
+// CredentialsConfig contains named credential sources selected by targets.
+type CredentialsConfig struct {
+	Sources map[string]CredentialSourceConfig `mapstructure:"sources" yaml:"sources"`
+}
+
+// CredentialSourceConfig selects one AWS SDK credential provider chain.
+// Static credentials are referenced by environment-variable name only.
+type CredentialSourceConfig struct {
+	Type               string `mapstructure:"type" yaml:"type"`
+	Profile            string `mapstructure:"profile" yaml:"profile"`
+	AccessKeyIDEnv     string `mapstructure:"access_key_id_env" yaml:"access_key_id_env"`
+	SecretAccessKeyEnv string `mapstructure:"secret_access_key_env" yaml:"secret_access_key_env"`
+	SessionTokenEnv    string `mapstructure:"session_token_env" yaml:"session_token_env"`
 }
 
 // EndpointsConfig provides service-specific endpoint overrides for testing.
@@ -77,10 +98,16 @@ type TargetConfig struct {
 	Name          string                    `mapstructure:"name" yaml:"name"`
 	AccountID     string                    `mapstructure:"account_id" yaml:"account_id"`
 	Required      bool                      `mapstructure:"required" yaml:"required"`
-	AssumeRole    *AssumeRoleConfig         `mapstructure:"assume_role" yaml:"assume_role"`
+	Credentials   TargetCredentialsConfig   `mapstructure:"credentials" yaml:"credentials"`
 	CostExplorer  TargetCostExplorerConfig  `mapstructure:"cost_explorer" yaml:"cost_explorer"`
 	Organizations TargetOrganizationsConfig `mapstructure:"organizations" yaml:"organizations"`
 	Budgets       TargetBudgetsConfig       `mapstructure:"budgets" yaml:"budgets"`
+}
+
+// TargetCredentialsConfig binds a target to a source and optional role.
+type TargetCredentialsConfig struct {
+	Source     string            `mapstructure:"source" yaml:"source"`
+	AssumeRole *AssumeRoleConfig `mapstructure:"assume_role" yaml:"assume_role"`
 }
 
 // AssumeRoleConfig selects target credentials through STS.
@@ -198,7 +225,8 @@ func Default() Config {
 		Log: LogConfig{Level: "info", Format: "json"},
 		AWS: AWSConfig{
 			Region: "us-east-1", RequestTimeout: 30 * time.Second,
-			Retry: RetryConfig{MaxAttempts: 5, BaseDelay: time.Second, MaxBackoff: 30 * time.Second},
+			Credentials: CredentialsConfig{Sources: map[string]CredentialSourceConfig{}},
+			Retry:       RetryConfig{MaxAttempts: 5, BaseDelay: time.Second, MaxBackoff: 30 * time.Second},
 			RateLimit: RateLimitConfig{
 				GlobalRequestsPerSecond: 1, GlobalBurst: 2,
 				TargetRequestsPerSecond: 0.5, TargetBurst: 1,

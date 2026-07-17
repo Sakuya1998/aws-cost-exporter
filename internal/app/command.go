@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sakuya1998/aws-cost-exporter/internal/aws/clientfactory"
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
 	"github.com/sakuya1998/aws-cost-exporter/internal/logging"
 	"github.com/sakuya1998/aws-cost-exporter/internal/version"
@@ -44,6 +45,13 @@ func execute(ctx context.Context, args []string, output, errorOutput io.Writer, 
 				return err
 			}
 			if checkConfig {
+				factory, sourceErr := clientfactory.New(ctx, value.AWS, nil)
+				if sourceErr == nil {
+					sourceErr = factory.ValidateSources()
+				}
+				if sourceErr != nil {
+					return fmt.Errorf("validate AWS credential sources: %w", sourceErr)
+				}
 				_, err = fmt.Fprintln(output, "configuration valid")
 				return err
 			}

@@ -10,7 +10,9 @@ Inspect `aws_cost_exporter_collector_up{target="..."}` and `aws_cost_exporter_ca
 
 For a Cost Explorer 403, confirm `ce:GetCostAndUsage` and `ce:GetCostForecast`. Organizations needs `organizations:ListAccounts` and `organizations:DescribeOrganization`; Budgets needs `budgets:ViewBudget`.
 
-For AssumeRole failures, verify the exact role ARN, trust principal, `sts:ExternalId`, target account ID, and that the configured `external_id_env` exists in the process. ExternalId values are intentionally absent from logs.
+For credential failures, verify that the target references an existing source. A `profile` source must exist in `AWS_SHARED_CREDENTIALS_FILE`/`AWS_CONFIG_FILE`; headless SSO profiles need a valid cached login. A `static_env` source requires every configured environment variable to be present and non-empty.
+
+Every target performs `sts:GetCallerIdentity` with its final credentials. A validation failure can mean that the selected Profile or static credentials belong to an account different from `target.account_id`. For AssumeRole failures, verify the exact role ARN, source trust principal, `sts:ExternalId`, target account ID, and `external_id_env`. Credential values, Caller ARN, and ExternalId are intentionally absent from logs.
 
 For throttling, inspect `aws_cost_exporter_aws_api_requests_total`, `aws_cost_exporter_aws_api_retries_total`, and `aws_cost_exporter_pagination_pages_total` by target. SDK retries occur after the global and target attempt limiters; scheduler backoff may retry the entire collector. Reduce refresh frequency, filters, or `max_pages` before raising rate limits.
 

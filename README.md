@@ -2,7 +2,7 @@
 
 [github.com/sakuya1998/aws-cost-exporter](https://github.com/sakuya1998/aws-cost-exporter) exports cached AWS billing data for Prometheus. It is an exporter, not a financial reconciliation system.
 
-v0.2 operates across explicitly configured AWS account targets. Each target may use the base credential chain or an exact STS AssumeRole ARN with ExternalId, and may independently enable Cost Explorer, Organizations metadata, and allowlisted AWS Budgets.
+v0.2 operates across explicitly configured AWS account targets. Each target selects a named default-chain, shared-profile, or environment-backed credential source and may optionally AssumeRole before enabling Cost Explorer, Organizations metadata, and allowlisted AWS Budgets.
 
 Prometheus scrapes only an immutable in-memory snapshot and does not call AWS during a Prometheus scrape.
 
@@ -54,6 +54,17 @@ Start with [configs/aws-cost-exporter.example.yaml](configs/aws-cost-exporter.ex
 aws:
   region: us-east-1
   request_timeout: 30s
+  credentials:
+    sources:
+      runtime:
+        type: default_chain
+      account-a:
+        type: profile
+        profile: account-a
+      legacy:
+        type: static_env
+        access_key_id_env: LEGACY_AWS_ACCESS_KEY_ID
+        secret_access_key_env: LEGACY_AWS_SECRET_ACCESS_KEY
   endpoints:
     sts: ""
     cost_explorer: ""
@@ -73,10 +84,12 @@ targets:
   - name: payer-prod
     account_id: "444455556666"
     required: true
-    assume_role:
-      role_arn: arn:aws:iam::444455556666:role/aws-cost-exporter-reader
-      external_id_env: AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID
-      session_name: aws-cost-exporter-payer-prod
+    credentials:
+      source: runtime
+      assume_role:
+        role_arn: arn:aws:iam::444455556666:role/aws-cost-exporter-reader
+        external_id_env: AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID
+        session_name: aws-cost-exporter-payer-prod
     cost_explorer:
       enabled: true
       filters:
@@ -91,7 +104,11 @@ targets:
       names: [Monthly-Production]
 ```
 
-`external_id_env` names an environment variable. The ExternalId itself must be injected from a secret and never appears in the configuration, ConfigMap, logs, errors, metrics, or debug endpoints. AssumeRole ARNs must identify one exact role without wildcards and must match the target `account_id`. At most one target may omit `assume_role`.
+Credential source types are `default_chain`, `profile`, and `static_env`. Every target explicitly references one source. A source may back many AssumeRole targets but at most one direct target. Account IDs and Role ARNs are unique. Profile sources use standard AWS shared configuration behavior, including `source_profile`, SSO, `credential_process`, and profile role chains.
+
+`static_env` and `external_id_env` contain environment-variable names, never secret values. Referenced variables must exist and be non-empty during `--check-config` and production startup. AK, SK, session tokens, and ExternalId values never appear in configuration, ConfigMaps, logs, metrics, or debug endpoints. AssumeRole ARNs must identify one exact role without wildcards and match the target `account_id`.
+
+Before a collector accesses billing APIs, its final target credentials are verified with STS `GetCallerIdentity`. A mismatched Profile or credential source cannot publish costs under the wrong target. Verification is target-scoped, single-flight, cached after success, and uses the normal global and target request limiters.
 
 Organizations `account_ids` is an optional allowlist. When non-empty, only those accounts are exported. When empty, metadata is exported only for linked accounts already observed by the target account cost collector. Organizations never creates targets automatically and never exposes account email.
 
@@ -99,7 +116,7 @@ Budgets requires a non-empty exact-name allowlist. Missing actual or forecasted 
 
 Important bounds:
 
-- `targets`: 1–20.
+- `targets` and credential sources: 1–20.
 - `aws.retry.max_attempts`: 1–10.
 - global and target burst: 1–5; RPS must be finite, positive, and no more than 10.
 - all `max_pages`: 1–200.
@@ -109,7 +126,7 @@ Important bounds:
 - `collection.cost_explorer.dimensions.overflow_label` must already be trimmed and must not collide with provider values.
 - `server.shutdown_timeout` and all other timeouts must be positive.
 
-Validate the exact production configuration and referenced ExternalId variables:
+Validate the exact production configuration and every referenced credential or ExternalId environment variable:
 
 ```bash
 ./aws-cost-exporter --config config.yaml --check-config
@@ -127,6 +144,8 @@ CLI flags:
 
 Environment overrides use double underscores, for example `AWS_COST_EXPORTER_SERVER__LISTEN_ADDRESS=:9090`.
 
+For Helm, use `config.secretEnvRefs` to inject `static_env` credentials and ExternalId values from existing Secrets. Use `awsSharedConfig.existingSecret` to mount AWS `credentials` and `config` files; the chart sets `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE`. Secret values never enter the generated ConfigMap. For Docker Compose, the read-only `${HOME}/.aws` mount supplies named Profile sources.
+
 ## AWS permissions
 
 Cost Explorer targets require:
@@ -136,9 +155,9 @@ ce:GetCostAndUsage
 ce:GetCostForecast
 ```
 
-Organizations targets additionally require `organizations:ListAccounts` and `organizations:DescribeOrganization`. Budgets targets require `budgets:ViewBudget`. The base principal requires `sts:AssumeRole` only for each exact configured role ARN.
+The exporter calls STS `GetCallerIdentity` for every final target identity; AWS does not normally require an explicit allow for that operation. Organizations targets additionally require `organizations:ListAccounts` and `organizations:DescribeOrganization`. Budgets targets require `budgets:ViewBudget`. A source principal requires `sts:AssumeRole` only for each exact configured role ARN.
 
-See [examples/iam](examples/iam). Static access keys are not configuration fields.
+See [examples/iam](examples/iam). Static access key values are never configuration fields; only environment-variable names may be configured.
 
 ## AWS request cost and limits
 

@@ -9,6 +9,58 @@ import (
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
 )
 
+func TestValidateCredentialSources(t *testing.T) {
+	t.Setenv("STATIC_ACCESS", "access")
+	t.Setenv("STATIC_SECRET", "secret")
+	base := validConfig()
+	base.AWS.Credentials.Sources["workstation"] = config.CredentialSourceConfig{Type: config.CredentialSourceProfile, Profile: "account-a"}
+	base.AWS.Credentials.Sources["legacy"] = config.CredentialSourceConfig{
+		Type: config.CredentialSourceStaticEnv, AccessKeyIDEnv: "STATIC_ACCESS", SecretAccessKeyEnv: "STATIC_SECRET",
+	}
+	if err := config.Validate(base); err != nil {
+		t.Fatalf("valid credential sources = %v", err)
+	}
+	for _, test := range []struct {
+		name, path string
+		mutate     func(*config.Config)
+	}{
+		{"missing sources", "aws.credentials.sources", func(v *config.Config) { v.AWS.Credentials.Sources = nil }},
+		{"unknown type", ".type", func(v *config.Config) {
+			v.AWS.Credentials.Sources["runtime"] = config.CredentialSourceConfig{Type: "keys"}
+		}},
+		{"profile whitespace", ".profile", func(v *config.Config) {
+			v.AWS.Credentials.Sources["runtime"] = config.CredentialSourceConfig{Type: config.CredentialSourceProfile, Profile: " account-a "}
+		}},
+		{"default fields", "default_chain", func(v *config.Config) {
+			v.AWS.Credentials.Sources["runtime"] = config.CredentialSourceConfig{Type: config.CredentialSourceDefaultChain, Profile: "default"}
+		}},
+		{"missing static env", "access_key_id_env", func(v *config.Config) {
+			v.AWS.Credentials.Sources["runtime"] = config.CredentialSourceConfig{Type: config.CredentialSourceStaticEnv, AccessKeyIDEnv: "UNSET_STATIC_ACCESS", SecretAccessKeyEnv: "STATIC_SECRET"}
+		}},
+		{"unknown target source", "credentials.source", func(v *config.Config) { v.Targets[0].Credentials.Source = "missing" }},
+		{"duplicate account", "account_id", func(v *config.Config) {
+			copy := v.Targets[0]
+			copy.Name = "other"
+			copy.Credentials.Source = "workstation"
+			v.Targets = append(v.Targets, copy)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := base
+			value.AWS.Credentials.Sources = make(map[string]config.CredentialSourceConfig, len(base.AWS.Credentials.Sources))
+			for name, source := range base.AWS.Credentials.Sources {
+				value.AWS.Credentials.Sources[name] = source
+			}
+			value.Targets = append([]config.TargetConfig(nil), base.Targets...)
+			test.mutate(&value)
+			err := config.Validate(value)
+			if err == nil || !strings.Contains(err.Error(), test.path) {
+				t.Fatalf("Validate()=%v, want %q", err, test.path)
+			}
+		})
+	}
+}
+
 func TestValidateEnforcesV02Invariants(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -55,7 +107,7 @@ func TestValidateEnforcesV02Invariants(t *testing.T) {
 func TestValidateAssumeRoleAndTargetUniqueness(t *testing.T) {
 	t.Setenv("TARGET_EXTERNAL_ID", "private")
 	base := validConfig()
-	base.Targets[0].AssumeRole = &config.AssumeRoleConfig{RoleARN: "arn:aws:iam::444455556666:role/exporter", ExternalIDEnv: "TARGET_EXTERNAL_ID"}
+	base.Targets[0].Credentials.AssumeRole = &config.AssumeRoleConfig{RoleARN: "arn:aws:iam::444455556666:role/exporter", ExternalIDEnv: "TARGET_EXTERNAL_ID"}
 	if err := config.Validate(base); err != nil {
 		t.Fatalf("valid role = %v", err)
 	}
@@ -63,15 +115,19 @@ func TestValidateAssumeRoleAndTargetUniqueness(t *testing.T) {
 		name, path string
 		mutate     func(*config.Config)
 	}{
-		{"wildcard", "role_arn", func(v *config.Config) { v.Targets[0].AssumeRole.RoleARN = "arn:aws:iam::444455556666:role/*" }},
-		{"account mismatch", "role_arn", func(v *config.Config) { v.Targets[0].AssumeRole.RoleARN = "arn:aws:iam::111122223333:role/exporter" }},
+		{"wildcard", "role_arn", func(v *config.Config) {
+			v.Targets[0].Credentials.AssumeRole.RoleARN = "arn:aws:iam::444455556666:role/*"
+		}},
+		{"account mismatch", "role_arn", func(v *config.Config) {
+			v.Targets[0].Credentials.AssumeRole.RoleARN = "arn:aws:iam::111122223333:role/exporter"
+		}},
 		{"duplicate target", "name", func(v *config.Config) { v.Targets = append(v.Targets, v.Targets[0]) }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			value := base
 			value.Targets = append([]config.TargetConfig(nil), base.Targets...)
-			role := *base.Targets[0].AssumeRole
-			value.Targets[0].AssumeRole = &role
+			role := *base.Targets[0].Credentials.AssumeRole
+			value.Targets[0].Credentials.AssumeRole = &role
 			test.mutate(&value)
 			err := config.Validate(value)
 			if err == nil || !strings.Contains(err.Error(), test.path) {
@@ -83,13 +139,13 @@ func TestValidateAssumeRoleAndTargetUniqueness(t *testing.T) {
 
 func TestValidateDirectAndOptionalTargets(t *testing.T) {
 	value := validConfig()
-	value.Targets = append(value.Targets, config.TargetConfig{Name: "optional-budget", AccountID: "111122223333", Budgets: config.TargetBudgetsConfig{Enabled: true, Names: []string{"Monthly"}}, AssumeRole: &config.AssumeRoleConfig{RoleARN: "arn:aws:iam::111122223333:role/exporter", ExternalIDEnv: "OPTIONAL_EXTERNAL_ID"}})
+	value.Targets = append(value.Targets, config.TargetConfig{Name: "optional-budget", AccountID: "111122223333", Credentials: config.TargetCredentialsConfig{Source: "runtime", AssumeRole: &config.AssumeRoleConfig{RoleARN: "arn:aws:iam::111122223333:role/exporter", ExternalIDEnv: "OPTIONAL_EXTERNAL_ID"}}, Budgets: config.TargetBudgetsConfig{Enabled: true, Names: []string{"Monthly"}}})
 	t.Setenv("OPTIONAL_EXTERNAL_ID", "private")
 	if err := config.Validate(value); err != nil {
 		t.Fatalf("Validate(optional target)=%v", err)
 	}
-	value.Targets[1].AssumeRole = nil
-	if err := config.Validate(value); err == nil || !strings.Contains(err.Error(), "at most one") {
+	value.Targets[1].Credentials.AssumeRole = nil
+	if err := config.Validate(value); err == nil || !strings.Contains(err.Error(), "direct target") {
 		t.Fatalf("Validate(two direct)=%v", err)
 	}
 }

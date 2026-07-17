@@ -67,6 +67,9 @@ func Validate(value Config) error {
 	if err := validateBase(value); err != nil {
 		return err
 	}
+	if err := validateCredentialSources(value.AWS.Credentials); err != nil {
+		return err
+	}
 	return validateTargets(value)
 }
 
@@ -116,8 +119,10 @@ func validateBase(value Config) error {
 
 func validateTargets(value Config) error {
 	names := make(map[string]struct{}, len(value.Targets))
+	accounts := make(map[string]struct{}, len(value.Targets))
 	roles := make(map[string]struct{}, len(value.Targets))
-	directTargets, requiredCostTargets := 0, 0
+	directSources := make(map[string]struct{}, len(value.Targets))
+	requiredCostTargets := 0
 	for index, target := range value.Targets {
 		path := fmt.Sprintf("targets[%d]", index)
 		if !targetNamePattern.MatchString(target.Name) {
@@ -130,6 +135,16 @@ func validateTargets(value Config) error {
 		if !accountIDPattern.MatchString(target.AccountID) {
 			return fmt.Errorf("%s.account_id: must contain 12 digits", path)
 		}
+		if _, duplicate := accounts[target.AccountID]; duplicate {
+			return fmt.Errorf("%s.account_id: must be unique", path)
+		}
+		accounts[target.AccountID] = struct{}{}
+		if !targetNamePattern.MatchString(target.Credentials.Source) {
+			return fmt.Errorf("%s.credentials.source: must reference a valid credential source", path)
+		}
+		if _, exists := value.AWS.Credentials.Sources[target.Credentials.Source]; !exists {
+			return fmt.Errorf("%s.credentials.source: credential source does not exist", path)
+		}
 		if !target.CostExplorer.Enabled && !target.Organizations.Enabled && !target.Budgets.Enabled {
 			return fmt.Errorf("%s: at least one integration must be enabled", path)
 		}
@@ -139,11 +154,14 @@ func validateTargets(value Config) error {
 			}
 			requiredCostTargets++
 		}
-		if err := validateAssumeRole(path, target, roles); err != nil {
+		if err := validateAssumeRole(path+".credentials", target, roles); err != nil {
 			return err
 		}
-		if target.AssumeRole == nil {
-			directTargets++
+		if target.Credentials.AssumeRole == nil {
+			if _, duplicate := directSources[target.Credentials.Source]; duplicate {
+				return fmt.Errorf("%s.credentials.source: a credential source may be used by at most one direct target", path)
+			}
+			directSources[target.Credentials.Source] = struct{}{}
 		}
 		if err := validateFilters(path+".cost_explorer.filters", target.CostExplorer.Filters); err != nil {
 			return err
@@ -155,9 +173,6 @@ func validateTargets(value Config) error {
 			return err
 		}
 	}
-	if directTargets > 1 {
-		return fmt.Errorf("targets: at most one target may omit assume_role")
-	}
 	if requiredCostTargets == 0 {
 		return fmt.Errorf("targets: at least one required Cost Explorer target is required")
 	}
@@ -165,10 +180,10 @@ func validateTargets(value Config) error {
 }
 
 func validateAssumeRole(path string, target TargetConfig, roles map[string]struct{}) error {
-	if target.AssumeRole == nil {
+	if target.Credentials.AssumeRole == nil {
 		return nil
 	}
-	role := target.AssumeRole
+	role := target.Credentials.AssumeRole
 	match := roleARNPattern.FindStringSubmatch(role.RoleARN)
 	if len(match) != 3 || strings.Contains(role.RoleARN, "*") {
 		return fmt.Errorf("%s.assume_role.role_arn: must be an exact IAM role ARN without wildcards", path)
@@ -188,6 +203,60 @@ func validateAssumeRole(path string, target TargetConfig, roles map[string]struc
 	}
 	if role.SessionName != "" && !sessionNamePattern.MatchString(role.SessionName) {
 		return fmt.Errorf("%s.assume_role.session_name: must be 2..64 AWS STS session characters", path)
+	}
+	return nil
+}
+
+func validateCredentialSources(value CredentialsConfig) error {
+	if len(value.Sources) == 0 || len(value.Sources) > maxTargets {
+		return fmt.Errorf("aws.credentials.sources: must contain between 1 and 20 entries")
+	}
+	for name, source := range value.Sources {
+		path := "aws.credentials.sources." + name
+		if !targetNamePattern.MatchString(name) {
+			return fmt.Errorf("%s: source name must match %s", path, targetNamePattern)
+		}
+		switch source.Type {
+		case CredentialSourceDefaultChain:
+			if source.Profile != "" || source.AccessKeyIDEnv != "" || source.SecretAccessKeyEnv != "" || source.SessionTokenEnv != "" {
+				return fmt.Errorf("%s: default_chain does not accept profile or static environment fields", path)
+			}
+		case CredentialSourceProfile:
+			if source.Profile == "" || source.Profile != strings.TrimSpace(source.Profile) {
+				return fmt.Errorf("%s.profile: must be non-empty without surrounding whitespace", path)
+			}
+			if source.AccessKeyIDEnv != "" || source.SecretAccessKeyEnv != "" || source.SessionTokenEnv != "" {
+				return fmt.Errorf("%s: profile does not accept static environment fields", path)
+			}
+		case CredentialSourceStaticEnv:
+			if source.Profile != "" {
+				return fmt.Errorf("%s.profile: static_env does not accept profile", path)
+			}
+			if err := validateSecretEnvironment(path+".access_key_id_env", source.AccessKeyIDEnv, true); err != nil {
+				return err
+			}
+			if err := validateSecretEnvironment(path+".secret_access_key_env", source.SecretAccessKeyEnv, true); err != nil {
+				return err
+			}
+			if err := validateSecretEnvironment(path+".session_token_env", source.SessionTokenEnv, false); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("%s.type: must be one of default_chain, profile, static_env", path)
+		}
+	}
+	return nil
+}
+
+func validateSecretEnvironment(path, name string, required bool) error {
+	if name == "" && !required {
+		return nil
+	}
+	if !environmentPattern.MatchString(name) {
+		return fmt.Errorf("%s: must be a valid environment variable name", path)
+	}
+	if secret, exists := os.LookupEnv(name); !exists || strings.TrimSpace(secret) == "" {
+		return fmt.Errorf("%s: referenced environment variable must be set and non-empty", path)
 	}
 	return nil
 }

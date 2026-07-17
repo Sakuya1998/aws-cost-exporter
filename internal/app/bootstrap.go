@@ -28,6 +28,7 @@ import (
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 	"github.com/sakuya1998/aws-cost-exporter/internal/httpserver"
 	appmetrics "github.com/sakuya1998/aws-cost-exporter/internal/metrics"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
@@ -138,7 +139,7 @@ func buildJobs(value config.Config, factory *clientfactory.Factory, telemetry *a
 				return nil, nil, collectorErr
 			}
 			for _, collector := range costCollectors {
-				jobs = append(jobs, scheduler.Job{Collector: collector, Interval: value.Collection.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
+				jobs = append(jobs, scheduler.Job{Collector: verifiedCollector{Collector: collector, verifier: clients.Verifier}, Interval: value.Collection.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
 				if targetConfig.Required {
 					required = append(required, collector.ID())
 				}
@@ -153,7 +154,7 @@ func buildJobs(value config.Config, factory *clientfactory.Factory, telemetry *a
 			if collectorErr != nil {
 				return nil, nil, collectorErr
 			}
-			jobs = append(jobs, scheduler.Job{Collector: collector, Interval: value.Collection.Organizations.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
+			jobs = append(jobs, scheduler.Job{Collector: verifiedCollector{Collector: collector, verifier: clients.Verifier}, Interval: value.Collection.Organizations.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
 		}
 		if targetConfig.Budgets.Enabled {
 			reader, readerErr := budgetapi.New(target, targetConfig.AccountID, clients.Budgets, value.Collection.Budgets.MaxPages, targetConfig.Budgets.Names, telemetry, clients.Retryer)
@@ -164,10 +165,22 @@ func buildJobs(value config.Config, factory *clientfactory.Factory, telemetry *a
 			if collectorErr != nil {
 				return nil, nil, collectorErr
 			}
-			jobs = append(jobs, scheduler.Job{Collector: collector, Interval: value.Collection.Budgets.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
+			jobs = append(jobs, scheduler.Job{Collector: verifiedCollector{Collector: collector, verifier: clients.Verifier}, Interval: value.Collection.Budgets.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
 		}
 	}
 	return jobs, required, nil
+}
+
+type verifiedCollector struct {
+	basecollector.Collector
+	verifier clientfactory.Verifier
+}
+
+func (collector verifiedCollector) Collect(ctx context.Context, reference time.Time) (snapshot.PartialSnapshot, error) {
+	if err := collector.verifier.Verify(ctx); err != nil {
+		return snapshot.PartialSnapshot{}, err
+	}
+	return collector.Collector.Collect(ctx, reference)
 }
 
 func buildCostCollectors(target identity.TargetID, reader filteredReader, targetConfig config.TargetConfig, value config.Config, telemetry *appmetrics.Exporter) ([]basecollector.Collector, error) {

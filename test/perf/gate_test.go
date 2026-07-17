@@ -259,15 +259,25 @@ func runPerfExporter(t *testing.T, handler http.HandlerFunc, allCollectors bool)
 	t.Setenv("AWS_ACCESS_KEY_ID", "perf")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "perf")
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	fakeAWS := httptest.NewServer(handler)
+	fakeAWS := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		if strings.Contains(string(body), "Action=GetCallerIdentity") {
+			writer.Header().Set("Content-Type", "text/xml")
+			_, _ = io.WriteString(writer, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><GetCallerIdentityResult><Account>444455556666</Account><Arn>arn:aws:iam::444455556666:user/perf</Arn><UserId>perf</UserId></GetCallerIdentityResult><ResponseMetadata><RequestId>request-id</RequestId></ResponseMetadata></GetCallerIdentityResponse>`)
+			return
+		}
+		request.Body = io.NopCloser(strings.NewReader(string(body)))
+		handler(writer, request)
+	}))
 	t.Cleanup(fakeAWS.Close)
 	listener, _ := net.Listen("tcp", "127.0.0.1:0")
 	address := listener.Addr().String()
 	_ = listener.Close()
 	value := config.Default()
-	value.Targets = []config.TargetConfig{{Name: "perf", AccountID: "444455556666", Required: true, CostExplorer: config.TargetCostExplorerConfig{Enabled: true}}}
+	value.AWS.Credentials.Sources = map[string]config.CredentialSourceConfig{"runtime": {Type: config.CredentialSourceDefaultChain}}
+	value.Targets = []config.TargetConfig{{Name: "perf", AccountID: "444455556666", Required: true, Credentials: config.TargetCredentialsConfig{Source: "runtime"}, CostExplorer: config.TargetCostExplorerConfig{Enabled: true}}}
 	value.Server.ListenAddress, value.Server.ShutdownTimeout = address, time.Second
-	value.AWS.Endpoints.CostExplorer, value.AWS.RequestTimeout = fakeAWS.URL, time.Second
+	value.AWS.Endpoints.STS, value.AWS.Endpoints.CostExplorer, value.AWS.RequestTimeout = fakeAWS.URL, fakeAWS.URL, time.Second
 	value.AWS.Retry.MaxAttempts, value.AWS.Retry.BaseDelay, value.AWS.Retry.MaxBackoff = 1, time.Millisecond, time.Millisecond
 	value.AWS.RateLimit.GlobalRequestsPerSecond, value.AWS.RateLimit.GlobalBurst = 10, 5
 	value.AWS.RateLimit.TargetRequestsPerSecond, value.AWS.RateLimit.TargetBurst = 10, 5

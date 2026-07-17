@@ -31,6 +31,9 @@ func TestBinaryReadinessMetricsDebugAndTermination(t *testing.T) {
 	var awsCalls atomic.Int32
 	fakeAWS := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		awsCalls.Add(1)
+		if serveCallerIdentity(writer, request) {
+			return
+		}
 		if !strings.HasSuffix(request.Header.Get("X-Amz-Target"), ".GetCostAndUsage") {
 			t.Errorf("unexpected AWS target %q", request.Header.Get("X-Amz-Target"))
 		}
@@ -116,6 +119,9 @@ func TestBinaryPublishesServiceAndTotalMetrics(t *testing.T) {
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	fakeAWS := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveCallerIdentity(writer, request) {
+			return
+		}
 		if !strings.HasSuffix(request.Header.Get("X-Amz-Target"), ".GetCostAndUsage") {
 			t.Errorf("unexpected AWS target %q", request.Header.Get("X-Amz-Target"))
 		}
@@ -236,7 +242,12 @@ func writeConfig(t *testing.T, address, endpoint string) string {
   shutdown_timeout: 1s
 aws:
   request_timeout: 5s
+  credentials:
+    sources:
+      runtime:
+        type: default_chain
   endpoints:
+    sts: %q
     cost_explorer: %q
   retry:
     max_attempts: 1
@@ -251,6 +262,8 @@ targets:
   - name: e2e
     account_id: "444455556666"
     required: true
+    credentials:
+      source: runtime
     cost_explorer:
       enabled: true
 collection:
@@ -270,7 +283,7 @@ collection:
 telemetry:
   include_go_collector: false
   include_process_collector: false
-`, address, endpoint)
+`, address, endpoint, endpoint)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -285,7 +298,12 @@ func writeMultiCollectorConfig(t *testing.T, address, endpoint string) string {
   shutdown_timeout: 1s
 aws:
   request_timeout: 5s
+  credentials:
+    sources:
+      runtime:
+        type: default_chain
   endpoints:
+    sts: %q
     cost_explorer: %q
   retry:
     max_attempts: 1
@@ -300,6 +318,8 @@ targets:
   - name: e2e
     account_id: "444455556666"
     required: true
+    credentials:
+      source: runtime
     cost_explorer:
       enabled: true
 collection:
@@ -319,12 +339,23 @@ collection:
 telemetry:
   include_go_collector: false
   include_process_collector: false
-`, address, endpoint)
+`, address, endpoint, endpoint)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+func serveCallerIdentity(writer http.ResponseWriter, request *http.Request) bool {
+	body, _ := io.ReadAll(request.Body)
+	if !strings.Contains(string(body), "Action=GetCallerIdentity") {
+		request.Body = io.NopCloser(bytes.NewReader(body))
+		return false
+	}
+	writer.Header().Set("Content-Type", "text/xml")
+	_, _ = io.WriteString(writer, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><GetCallerIdentityResult><Account>444455556666</Account><Arn>arn:aws:iam::444455556666:user/e2e</Arn><UserId>e2e</UserId></GetCallerIdentityResult><ResponseMetadata><RequestId>request-id</RequestId></ResponseMetadata></GetCallerIdentityResponse>`)
+	return true
 }
 
 func assertGoldenMetrics(t *testing.T, body string) {

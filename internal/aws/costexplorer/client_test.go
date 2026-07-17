@@ -20,6 +20,7 @@ func TestNewSDKConfigUsesDefaultChainAndClientPolicy(t *testing.T) {
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
 
 	value := config.Default().AWS
+	value.Credentials.Sources = map[string]config.CredentialSourceConfig{"runtime": {Type: config.CredentialSourceDefaultChain}}
 	value.RequestTimeout = 125 * time.Millisecond
 	value.Retry.MaxAttempts = 2
 	sdkConfig, err := newSDKConfig(context.Background(), value)
@@ -58,7 +59,7 @@ func TestNewSDKConfigUsesNamedProfile(t *testing.T) {
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", path)
 
 	value := config.Default().AWS
-	value.Profile = "finops"
+	value.Credentials.Sources = map[string]config.CredentialSourceConfig{"finops": {Type: config.CredentialSourceProfile, Profile: "finops"}}
 	sdkConfig, err := newSDKConfig(context.Background(), value)
 	if err != nil {
 		t.Fatalf("newSDKConfig() returned an unexpected error: %v", err)
@@ -79,6 +80,7 @@ func TestNewAppliesExplicitEndpoint(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
 
 	value := config.Default().AWS
+	value.Credentials.Sources = map[string]config.CredentialSourceConfig{"runtime": {Type: config.CredentialSourceDefaultChain}}
 	value.Endpoints.CostExplorer = "https://cost.example.test"
 	client, err := New(context.Background(), value)
 	if err != nil {

@@ -10,8 +10,12 @@ import (
 
 func validConfig() config.Config {
 	value := config.Default()
+	value.AWS.Credentials.Sources = map[string]config.CredentialSourceConfig{
+		"runtime": {Type: config.CredentialSourceDefaultChain},
+	}
 	value.Targets = []config.TargetConfig{{
 		Name: "payer-prod", AccountID: "444455556666", Required: true,
+		Credentials:  config.TargetCredentialsConfig{Source: "runtime"},
 		CostExplorer: config.TargetCostExplorerConfig{Enabled: true},
 	}}
 	return value
@@ -22,6 +26,9 @@ func TestDefaultReturnsExpectedV02Shape(t *testing.T) {
 	value := config.Default()
 	if len(value.Targets) != 0 {
 		t.Fatalf("default targets = %v, want explicit empty list", value.Targets)
+	}
+	if len(value.AWS.Credentials.Sources) != 0 {
+		t.Fatalf("default credential sources = %v, want explicit empty map", value.AWS.Credentials.Sources)
 	}
 	if value.Collection.RefreshInterval != 6*time.Hour || value.Collection.MaxConcurrency != 4 {
 		t.Fatalf("collection defaults = %#v", value.Collection)

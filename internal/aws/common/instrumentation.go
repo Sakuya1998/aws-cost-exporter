@@ -17,6 +17,7 @@ import (
 
 const (
 	OperationAssumeRole           = "AssumeRole"
+	OperationGetCallerIdentity    = "GetCallerIdentity"
 	OperationGetCostAndUsage      = "GetCostAndUsage"
 	OperationGetCostForecast      = "GetCostForecast"
 	OperationListAccounts         = "ListAccounts"

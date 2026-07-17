@@ -18,7 +18,7 @@ import (
 func writeTestConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	document := []byte("targets:\n  - name: payer-prod\n    account_id: \"444455556666\"\n    required: true\n    cost_explorer:\n      enabled: true\n")
+	document := []byte("aws:\n  credentials:\n    sources:\n      runtime:\n        type: default_chain\ntargets:\n  - name: payer-prod\n    account_id: \"444455556666\"\n    required: true\n    credentials:\n      source: runtime\n    cost_explorer:\n      enabled: true\n")
 	if err := os.WriteFile(path, document, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestExecuteHandlesVersionCheckAndOverrides(t *testing.T) {
 
 func TestConfiguredCollectorIDsAndRequiredTargets(t *testing.T) {
 	value := config.Default()
-	value.Targets = []config.TargetConfig{{Name: "payer", AccountID: "444455556666", Required: true, CostExplorer: config.TargetCostExplorerConfig{Enabled: true}}, {Name: "optional", AccountID: "111122223333", Organizations: config.TargetOrganizationsConfig{Enabled: true, AccountIDs: []string{"111122223333"}}, AssumeRole: &config.AssumeRoleConfig{RoleARN: "arn:aws:iam::111122223333:role/exporter", ExternalIDEnv: "IGNORED_IN_THIS_HELPER"}}}
+	value.Targets = []config.TargetConfig{{Name: "payer", AccountID: "444455556666", Required: true, Credentials: config.TargetCredentialsConfig{Source: "runtime"}, CostExplorer: config.TargetCostExplorerConfig{Enabled: true}}, {Name: "optional", AccountID: "111122223333", Credentials: config.TargetCredentialsConfig{Source: "runtime", AssumeRole: &config.AssumeRoleConfig{RoleARN: "arn:aws:iam::111122223333:role/exporter", ExternalIDEnv: "IGNORED_IN_THIS_HELPER"}}, Organizations: config.TargetOrganizationsConfig{Enabled: true, AccountIDs: []string{"111122223333"}}}}
 	got := configuredCollectorIDs(value)
 	want := []identity.CollectorID{{Target: "payer", Name: "total"}, {Target: "payer", Name: "service"}, {Target: "payer", Name: "region"}, {Target: "payer", Name: "account"}, {Target: "payer", Name: "forecast"}, {Target: "optional", Name: "organizations"}}
 	if !reflect.DeepEqual(got, want) {
@@ -79,6 +79,30 @@ func TestCheckConfigRejectsRuntimeInvalidServerConfig(t *testing.T) {
 	var output, errorOutput bytes.Buffer
 	err := execute(context.Background(), []string{"--config", writeTestConfig(t), "--check-config"}, &output, &errorOutput, func(context.Context, config.Config, *slog.Logger) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "server.write_timeout") || strings.Contains(output.String(), "configuration valid") {
+		t.Fatalf("output=%q err=%v", output.String(), err)
+	}
+}
+
+func TestCheckConfigRejectsMissingCredentialProfile(t *testing.T) {
+	dir := t.TempDir()
+	credentialsPath := filepath.Join(dir, "credentials")
+	configPath := filepath.Join(dir, "aws-config")
+	if err := os.WriteFile(credentialsPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", credentialsPath)
+	t.Setenv("AWS_CONFIG_FILE", configPath)
+	document := []byte("aws:\n  credentials:\n    sources:\n      missing:\n        type: profile\n        profile: does-not-exist\ntargets:\n  - name: payer-prod\n    account_id: \"444455556666\"\n    required: true\n    credentials:\n      source: missing\n    cost_explorer:\n      enabled: true\n")
+	path := filepath.Join(dir, "exporter.yaml")
+	if err := os.WriteFile(path, document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var output, errorOutput bytes.Buffer
+	err := execute(context.Background(), []string{"--config", path, "--check-config"}, &output, &errorOutput, func(context.Context, config.Config, *slog.Logger) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "missing") || strings.Contains(output.String(), "configuration valid") {
 		t.Fatalf("output=%q err=%v", output.String(), err)
 	}
 }

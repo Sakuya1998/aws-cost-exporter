@@ -19,7 +19,18 @@ log:
 
 aws:
   region: us-east-1
-  profile: "default"
+  credentials:
+    sources:
+      runtime:
+        type: default_chain
+      # workstation-account:
+      #   type: profile
+      #   profile: account-a
+      # legacy-account:
+      #   type: static_env
+      #   access_key_id_env: LEGACY_AWS_ACCESS_KEY_ID
+      #   secret_access_key_env: LEGACY_AWS_SECRET_ACCESS_KEY
+      #   session_token_env: LEGACY_AWS_SESSION_TOKEN
   request_timeout: 30s
   endpoints:
     sts: ""
@@ -40,12 +51,13 @@ targets:
   - name: payer-prod
     account_id: "444455556666"
     required: true
-    # Omit assume_role only for the one target using the base credential chain.
-    # For assumed targets, ExternalId is read exclusively from the named env var.
-    # assume_role:
-    #   role_arn: arn:aws:iam::444455556666:role/aws-cost-exporter-reader
-    #   external_id_env: AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID
-    #   session_name: aws-cost-exporter-payer-prod
+    credentials:
+      source: runtime
+      # For assumed targets, ExternalId is read exclusively from the named env var.
+      # assume_role:
+      #   role_arn: arn:aws:iam::444455556666:role/aws-cost-exporter-reader
+      #   external_id_env: AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID
+      #   session_name: aws-cost-exporter-payer-prod
     cost_explorer:
       enabled: true
       filters:

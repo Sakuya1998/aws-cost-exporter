@@ -50,7 +50,7 @@ resources: {}
 
 config:
   existingConfigMap: ""
-  externalIdSecretRefs: []
+  secretEnvRefs: []
   # - envName: AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID
   #   secretName: aws-cost-exporter-external-ids
   #   secretKey: payer-prod
@@ -63,15 +63,27 @@ config:
       format: json
     aws:
       region: us-east-1
+      credentials:
+        sources:
+          runtime:
+            type: default_chain
     targets:
       - name: payer-prod
         account_id: "444455556666"
         required: true
+        credentials:
+          source: runtime
         cost_explorer:
           enabled: true
     collection:
       cost_explorer:
         max_pages: 50
+
+awsSharedConfig:
+  existingSecret: ""
+  credentialsKey: credentials
+  configKey: config
+  mountPath: /var/run/aws
 
 serviceMonitor:
   enabled: false
