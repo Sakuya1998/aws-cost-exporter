@@ -34,6 +34,16 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          {{- with .Values.config.externalIdSecretRefs }}
+          env:
+            {{- range . }}
+            - name: {{ .envName | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName | quote }}
+                  key: {{ .secretKey | quote }}
+            {{- end }}
+          {{- end }}
           {{- if .Values.livenessProbe.enabled }}
           livenessProbe:
             {{- omit .Values.livenessProbe "enabled" | toYaml | nindent 12 }}

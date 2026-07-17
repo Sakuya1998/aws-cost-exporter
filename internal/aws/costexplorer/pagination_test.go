@@ -40,7 +40,7 @@ func TestUsagePaginatorReadsEveryEndpointPage(t *testing.T) {
 	defer server.Close()
 
 	value := config.Default().AWS
-	value.EndpointURL = server.URL
+	value.Endpoints.CostExplorer = server.URL
 	value.RequestTimeout = time.Second
 	value.Retry.MaxAttempts = 1
 	client, err := New(context.Background(), value)

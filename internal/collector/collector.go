@@ -5,13 +5,14 @@ import (
 	"context"
 	"time"
 
-	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 )
 
 // Collector refreshes one bounded family of AWS cost data.
 type Collector interface {
-	Name() string
-	Collect(ctx context.Context, reference time.Time) (cost.PartialSnapshot, error)
+	ID() identity.CollectorID
+	Collect(ctx context.Context, reference time.Time) (snapshot.PartialSnapshot, error)
 }
 
 // Factory constructs a collector with dependencies captured by its closure.

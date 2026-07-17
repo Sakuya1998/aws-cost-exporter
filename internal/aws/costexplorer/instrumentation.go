@@ -3,187 +3,75 @@ package costexplorer
 import (
 	"context"
 	"errors"
-	"fmt"
-	"math"
-	"net"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscostexplorer "github.com/aws/aws-sdk-go-v2/service/costexplorer"
-	"github.com/aws/smithy-go"
-	"golang.org/x/time/rate"
 
-	"github.com/sakuya1998/aws-cost-exporter/internal/config"
+	awscommon "github.com/sakuya1998/aws-cost-exporter/internal/aws/common"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
 )
 
 const (
-	operationCostAndUsage = "GetCostAndUsage"
-	operationCostForecast = "GetCostForecast"
+	operationCostAndUsage = awscommon.OperationGetCostAndUsage
+	operationCostForecast = awscommon.OperationGetCostForecast
 )
 
-// API is the Cost Explorer SDK surface consumed by adapters.
 type API interface {
 	GetCostAndUsage(context.Context, *awscostexplorer.GetCostAndUsageInput, ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostAndUsageOutput, error)
 	GetCostForecast(context.Context, *awscostexplorer.GetCostForecastInput, ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostForecastOutput, error)
 }
 
-// Observer receives only bounded operation, status, and retry-reason labels.
-// Implementations must be safe for concurrent use.
-type Observer interface {
-	ObserveRequest(operation, status string, duration time.Duration)
-	ObserveRetry(operation, reason string)
-	ObservePaginationPage(operation string)
-}
+type Observer = awscommon.Observer
 
-// InstrumentedClient applies global rate limiting and bounded observations.
-type InstrumentedClient struct {
-	api      API
-	limiter  attemptLimiter
-	observer Observer
-}
-
-type attemptLimiter interface {
-	Wait(context.Context) error
-}
-
-// NewInstrumented decorates a Cost Explorer API client.
-func NewInstrumented(api API, value config.RateLimitConfig, observer Observer) (*InstrumentedClient, error) {
-	if api == nil {
-		return nil, errors.New("cost explorer API must not be nil")
-	}
-	if math.IsNaN(value.RequestsPerSecond) || math.IsInf(value.RequestsPerSecond, 0) ||
-		value.RequestsPerSecond <= 0 || value.Burst <= 0 {
-		return nil, errors.New("rate limit must be finite and positive")
-	}
-	if observer == nil {
-		observer = discardObserver{}
-	}
-
-	return newInstrumentedClient(
-		api,
-		rate.NewLimiter(rate.Limit(value.RequestsPerSecond), value.Burst),
-		observer,
-	)
-}
-
-func newInstrumentedClient(api API, limiter attemptLimiter, observer Observer) (*InstrumentedClient, error) {
-	if api == nil || limiter == nil {
-		return nil, errors.New("cost explorer API and attempt limiter must not be nil")
-	}
-	if observer == nil {
-		observer = discardObserver{}
-	}
-	return &InstrumentedClient{api: api, limiter: limiter, observer: observer}, nil
-}
-
-// GetCostAndUsage rate-limits and observes one paginated cost operation.
-func (client *InstrumentedClient) GetCostAndUsage(
-	ctx context.Context,
-	input *awscostexplorer.GetCostAndUsageInput,
-	options ...func(*awscostexplorer.Options),
-) (*awscostexplorer.GetCostAndUsageOutput, error) {
-	started := time.Now()
-	output, err := client.api.GetCostAndUsage(
-		ctx, input, client.withRetryObserver(operationCostAndUsage, options)...,
-	)
-	client.observer.ObserveRequest(operationCostAndUsage, requestStatus(err), time.Since(started))
-
-	return output, err
-}
-
-// GetCostForecast rate-limits and observes one forecast operation.
-func (client *InstrumentedClient) GetCostForecast(
-	ctx context.Context,
-	input *awscostexplorer.GetCostForecastInput,
-	options ...func(*awscostexplorer.Options),
-) (*awscostexplorer.GetCostForecastOutput, error) {
-	started := time.Now()
-	output, err := client.api.GetCostForecast(
-		ctx, input, client.withRetryObserver(operationCostForecast, options)...,
-	)
-	client.observer.ObserveRequest(operationCostForecast, requestStatus(err), time.Since(started))
-
-	return output, err
-}
-
-// withRetryObserver wraps the final per-operation retryer.
-func (client *InstrumentedClient) withRetryObserver(operation string, options []func(*awscostexplorer.Options)) []func(*awscostexplorer.Options) {
-	result := append([]func(*awscostexplorer.Options){}, options...)
-
-	return append(result, func(value *awscostexplorer.Options) {
-		if value.Retryer != nil {
-			value.Retryer = retryObserver{
-				Retryer: value.Retryer, operation: operation, observer: client.observer,
-				limiter: client.limiter,
-			}
-		}
-	})
-}
-
-// retryObserver delegates retry policy while recording acquired retry tokens.
-type retryObserver struct {
-	aws.Retryer
-	operation string
-	observer  Observer
-	limiter   attemptLimiter
-}
-
-// GetRetryToken observes a retry only after the SDK grants its token.
-func (observer retryObserver) GetRetryToken(ctx context.Context, operationError error) (func(error) error, error) {
-	release, err := observer.Retryer.GetRetryToken(ctx, operationError)
-	if err == nil {
-		observer.observer.ObserveRetry(observer.operation, retryReason(operationError))
-	}
-	return release, err
-}
-
-// GetAttemptToken preserves RetryerV2 attempt-rate behavior when available.
-func (observer retryObserver) GetAttemptToken(ctx context.Context) (func(error) error, error) {
-	if err := observer.limiter.Wait(ctx); err != nil {
-		return nil, fmt.Errorf("wait for Cost Explorer attempt rate limit: %w", err)
-	}
-	if retryer, ok := observer.Retryer.(aws.RetryerV2); ok {
-		return retryer.GetAttemptToken(ctx)
-	}
-	return observer.GetInitialToken(), nil
-}
-
-// requestStatus converts arbitrary failures to bounded status labels.
-func requestStatus(err error) string {
-	if err == nil {
-		return "success"
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return "canceled"
-	}
-	var apiError smithy.APIError
-	if errors.As(err, &apiError) && isThrottleCode(apiError.ErrorCode()) {
-		return "throttle"
-	}
-	return "error"
-}
-
-// retryReason converts arbitrary retry errors to bounded reason labels.
-func retryReason(err error) string {
-	var apiError smithy.APIError
-	if errors.As(err, &apiError) && isThrottleCode(apiError.ErrorCode()) {
-		return "throttle"
-	}
-	var networkError net.Error
-	if errors.As(err, &networkError) && networkError.Timeout() {
-		return "timeout"
-	}
-	return "other"
-}
-
-// discardObserver provides zero-allocation callbacks when telemetry is absent.
 type discardObserver struct{}
 
-// ObserveRequest discards a request observation.
-func (discardObserver) ObserveRequest(string, string, time.Duration) {}
+func (discardObserver) ObserveRequest(identity.TargetID, string, string, time.Duration) {}
+func (discardObserver) ObserveRetry(identity.TargetID, string, string)                  {}
+func (discardObserver) ObservePaginationPage(identity.TargetID, string)                 {}
 
-// ObserveRetry discards a retry observation.
-func (discardObserver) ObserveRetry(string, string) {}
+// InstrumentedClient records target-scoped logical Cost Explorer operations.
+// Attempt limiting and retry observations are installed in the SDK client retryer.
+type InstrumentedClient struct {
+	target   identity.TargetID
+	api      API
+	observer Observer
+	retryer  func(string) aws.Retryer
+}
 
-// ObservePaginationPage discards a pagination observation.
-func (discardObserver) ObservePaginationPage(string) {}
+func NewInstrumented(target identity.TargetID, api API, observer Observer, retryers ...func(string) aws.Retryer) (*InstrumentedClient, error) {
+	if target == "" || api == nil {
+		return nil, errors.New("target and cost explorer API must not be empty")
+	}
+	if observer == nil {
+		observer = discardObserver{}
+	}
+	var retryer func(string) aws.Retryer
+	if len(retryers) > 0 {
+		retryer = retryers[0]
+	}
+	return &InstrumentedClient{target: target, api: api, observer: observer, retryer: retryer}, nil
+}
+
+func (client *InstrumentedClient) GetCostAndUsage(ctx context.Context, input *awscostexplorer.GetCostAndUsageInput, options ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostAndUsageOutput, error) {
+	started := time.Now()
+	if client.retryer != nil {
+		options = append(options, func(value *awscostexplorer.Options) { value.Retryer = client.retryer(operationCostAndUsage) })
+	}
+	output, err := client.api.GetCostAndUsage(ctx, input, options...)
+	awscommon.ObserveCall(client.observer, client.target, operationCostAndUsage, started, err)
+	return output, err
+}
+
+func (client *InstrumentedClient) GetCostForecast(ctx context.Context, input *awscostexplorer.GetCostForecastInput, options ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostForecastOutput, error) {
+	started := time.Now()
+	if client.retryer != nil {
+		options = append(options, func(value *awscostexplorer.Options) { value.Retryer = client.retryer(operationCostForecast) })
+	}
+	output, err := client.api.GetCostForecast(ctx, input, options...)
+	awscommon.ObserveCall(client.observer, client.target, operationCostForecast, started, err)
+	return output, err
+}
+
+func requestStatus(err error) string { return awscommon.RequestStatus(err) }
+func retryReason(err error) string   { return awscommon.RetryReason(err) }

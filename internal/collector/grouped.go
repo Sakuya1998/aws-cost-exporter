@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
 )
 
@@ -36,6 +38,7 @@ func ValidateOverflowLabel(label string) error {
 func CollectGrouped(
 	ctx context.Context,
 	reference time.Time,
+	target identity.TargetID,
 	groupBy cost.DimensionKind,
 	seriesLimit int,
 	overflowLabel string,
@@ -43,13 +46,13 @@ func CollectGrouped(
 	mutate func(*ports.CostQuery),
 	validate func([]cost.Cost) error,
 	observers ...OverflowObserver,
-) (cost.PartialSnapshot, error) {
+) (snapshot.PartialSnapshot, error) {
 	if err := ValidateOverflowLabel(overflowLabel); err != nil {
-		return cost.PartialSnapshot{}, err
+		return snapshot.PartialSnapshot{}, err
 	}
 	queries, err := BuildDailyAndMTDQueries(reference, groupBy)
 	if err != nil {
-		return cost.PartialSnapshot{}, err
+		return snapshot.PartialSnapshot{}, err
 	}
 	var collected []cost.Cost
 	for index := range queries {
@@ -58,22 +61,25 @@ func CollectGrouped(
 		}
 		query := queries[index]
 		if err := ctx.Err(); err != nil {
-			return cost.PartialSnapshot{}, err
+			return snapshot.PartialSnapshot{}, err
 		}
 		values, err := reader.ReadCosts(ctx, query)
 		if err != nil {
-			return cost.PartialSnapshot{}, fmt.Errorf("collect %s %s cost: %w", query.Window, groupBy, err)
+			return snapshot.PartialSnapshot{}, fmt.Errorf("collect %s %s cost: %w", query.Window, groupBy, err)
 		}
 		if validate != nil {
 			if err := validate(values); err != nil {
-				return cost.PartialSnapshot{}, fmt.Errorf("validate %s %s cost: %w", query.Window, groupBy, err)
+				return snapshot.PartialSnapshot{}, fmt.Errorf("validate %s %s cost: %w", query.Window, groupBy, err)
 			}
 		}
 		values, err = LimitDimensions(values, seriesLimit, overflowLabel, observers...)
 		if err != nil {
-			return cost.PartialSnapshot{}, fmt.Errorf("limit %s %s cost: %w", query.Window, groupBy, err)
+			return snapshot.PartialSnapshot{}, fmt.Errorf("limit %s %s cost: %w", query.Window, groupBy, err)
+		}
+		for index := range values {
+			values[index].Target = target
 		}
 		collected = append(collected, values...)
 	}
-	return cost.NewSnapshot(collected, nil), nil
+	return snapshot.New(collected, nil, nil, nil), nil
 }

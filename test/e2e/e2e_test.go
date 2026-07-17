@@ -181,8 +181,8 @@ func TestBinaryPublishesServiceAndTotalMetrics(t *testing.T) {
 	awaitStatus(t, baseURL+"/ready", http.StatusOK)
 	metrics := fetch(t, baseURL+"/metrics")
 	for _, fragment := range []string{
-		"aws_cost_daily_amount{currency=\"USD\"} 11",
-		"aws_cost_service_daily_amount{aws_service=\"Amazon EC2\",currency=\"USD\"} 5",
+		"aws_cost_daily_amount{currency=\"USD\",target=\"e2e\"} 11",
+		"aws_cost_service_daily_amount{aws_service=\"Amazon EC2\",currency=\"USD\",target=\"e2e\"} 5",
 	} {
 		if !strings.Contains(metrics, fragment) {
 			t.Fatalf("metrics missing %q\n%s", fragment, metrics)
@@ -235,33 +235,41 @@ func writeConfig(t *testing.T, address, endpoint string) string {
   listen_address: %q
   shutdown_timeout: 1s
 aws:
-  endpoint_url: %q
   request_timeout: 5s
+  endpoints:
+    cost_explorer: %q
   retry:
     max_attempts: 1
     base_delay: 1ms
     max_backoff: 5ms
   rate_limit:
-    requests_per_second: 1
-    burst: 5
-cost_explorer:
+    global_requests_per_second: 1
+    global_burst: 5
+    target_requests_per_second: 1
+    target_burst: 5
+targets:
+  - name: e2e
+    account_id: "444455556666"
+    required: true
+    cost_explorer:
+      enabled: true
+collection:
   startup_refresh: true
   jitter_ratio: 0
-  forecast:
-    enabled: false
-  collectors:
-    total: true
-    service: false
-    region: false
-    account: false
-telemetry:
-  include_go_collector: false
-  include_process_collector: false
-scheduler:
   failure_backoff:
     initial: 10ms
     max: 50ms
     multiplier: 2
+  cost_explorer:
+    collectors:
+      total: true
+      service: false
+      region: false
+      account: false
+      forecast: false
+telemetry:
+  include_go_collector: false
+  include_process_collector: false
 `, address, endpoint)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -276,33 +284,41 @@ func writeMultiCollectorConfig(t *testing.T, address, endpoint string) string {
   listen_address: %q
   shutdown_timeout: 1s
 aws:
-  endpoint_url: %q
   request_timeout: 5s
+  endpoints:
+    cost_explorer: %q
   retry:
     max_attempts: 1
     base_delay: 1ms
     max_backoff: 5ms
   rate_limit:
-    requests_per_second: 1
-    burst: 5
-cost_explorer:
+    global_requests_per_second: 1
+    global_burst: 5
+    target_requests_per_second: 1
+    target_burst: 5
+targets:
+  - name: e2e
+    account_id: "444455556666"
+    required: true
+    cost_explorer:
+      enabled: true
+collection:
   startup_refresh: true
   jitter_ratio: 0
-  forecast:
-    enabled: false
-  collectors:
-    total: true
-    service: true
-    region: false
-    account: false
-telemetry:
-  include_go_collector: false
-  include_process_collector: false
-scheduler:
   failure_backoff:
     initial: 10ms
     max: 50ms
     multiplier: 2
+  cost_explorer:
+    collectors:
+      total: true
+      service: true
+      region: false
+      account: false
+      forecast: false
+telemetry:
+  include_go_collector: false
+  include_process_collector: false
 `, address, endpoint)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

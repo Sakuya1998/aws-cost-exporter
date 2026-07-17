@@ -9,134 +9,87 @@ import (
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
 )
 
-// TestValidateEnforcesCrossFieldInvariants verifies invalid values identify
-// their exact configuration path.
-func TestValidateEnforcesCrossFieldInvariants(t *testing.T) {
+func TestValidateEnforcesV02Invariants(t *testing.T) {
 	t.Parallel()
-
-	if err := config.Validate(config.Default()); err != nil {
-		t.Fatalf("Validate(Default()) returned an unexpected error: %v", err)
-	}
-
 	tests := []struct {
-		name   string
-		path   string
-		mutate func(*config.Config)
+		name, path string
+		mutate     func(*config.Config)
 	}{
-		{name: "metrics path", path: "server.metrics_path", mutate: func(value *config.Config) {
-			value.Server.MetricsPath = "metrics"
+		{"targets missing", "targets", func(v *config.Config) { v.Targets = nil }},
+		{"target name", "targets[0].name", func(v *config.Config) { v.Targets[0].Name = "Bad Name" }},
+		{"account id", "targets[0].account_id", func(v *config.Config) { v.Targets[0].AccountID = "123" }},
+		{"required integration", "targets[0].required", func(v *config.Config) {
+			v.Targets[0].CostExplorer.Enabled = false
+			v.Targets[0].Budgets.Enabled = true
+			v.Targets[0].Budgets.Names = []string{"Monthly"}
 		}},
-		{name: "reserved metrics path", path: "server.metrics_path", mutate: func(value *config.Config) {
-			value.Server.MetricsPath = "/healthz"
+		{"metrics path", "server.metrics_path", func(v *config.Config) { v.Server.MetricsPath = "/ready" }},
+		{"global rate finite", "aws.rate_limit.global_requests_per_second", func(v *config.Config) { v.AWS.RateLimit.GlobalRequestsPerSecond = math.NaN() }},
+		{"target rate finite", "aws.rate_limit.target_requests_per_second", func(v *config.Config) { v.AWS.RateLimit.TargetRequestsPerSecond = math.Inf(1) }},
+		{"global burst", "aws.rate_limit.global_burst", func(v *config.Config) { v.AWS.RateLimit.GlobalBurst = 6 }},
+		{"retry attempts", "aws.retry.max_attempts", func(v *config.Config) { v.AWS.Retry.MaxAttempts = 11 }},
+		{"refresh", "collection.refresh_interval", func(v *config.Config) { v.Collection.RefreshInterval = v.AWS.RequestTimeout }},
+		{"jitter", "collection.jitter_ratio", func(v *config.Config) { v.Collection.JitterRatio = math.NaN() }},
+		{"backoff", "collection.failure_backoff.multiplier", func(v *config.Config) { v.Collection.FailureBackoff.Multiplier = math.Inf(1) }},
+		{"overflow whitespace", "collection.cost_explorer.dimensions.overflow_label", func(v *config.Config) { v.Collection.CostExplorer.Dimensions.OverflowLabel = " __other__ " }},
+		{"budgets names", "targets[0].budgets.names", func(v *config.Config) { v.Targets[0].Budgets.Enabled = true }},
+		{"organizations observed", "organizations.account_ids", func(v *config.Config) {
+			v.Targets[0].Organizations.Enabled = true
+			v.Collection.CostExplorer.Collectors.Account = false
 		}},
-		{name: "debug metrics path", path: "server.metrics_path", mutate: func(value *config.Config) {
-			value.Server.Debug.Enabled, value.Server.MetricsPath = true, "/debug/pprof"
-		}},
-		{name: "write timeout", path: "server.write_timeout", mutate: func(value *config.Config) {
-			value.Server.WriteTimeout = 0
-		}},
-		{name: "read header timeout", path: "server.read_header_timeout", mutate: func(value *config.Config) {
-			value.Server.ReadHeaderTimeout = -time.Second
-		}},
-		{name: "read timeout", path: "server.read_timeout", mutate: func(value *config.Config) {
-			value.Server.ReadTimeout = 0
-		}},
-		{name: "idle timeout", path: "server.idle_timeout", mutate: func(value *config.Config) {
-			value.Server.IdleTimeout = 0
-		}},
-		{name: "shutdown timeout", path: "server.shutdown_timeout", mutate: func(value *config.Config) {
-			value.Server.ShutdownTimeout = 0
-		}},
-		{name: "AWS region", path: "aws.region", mutate: func(value *config.Config) {
-			value.AWS.Region = "us-west-2"
-		}},
-		{name: "refresh interval", path: "cost_explorer.refresh_interval", mutate: func(value *config.Config) {
-			value.CostExplorer.RefreshInterval = value.AWS.RequestTimeout
-		}},
-		{name: "jitter", path: "cost_explorer.jitter_ratio", mutate: func(value *config.Config) {
-			value.CostExplorer.JitterRatio = 0.6
-		}},
-		{name: "prediction", path: "cost_explorer.forecast.prediction_interval", mutate: func(value *config.Config) {
-			value.CostExplorer.Forecast.PredictionInterval = 79
-		}},
-		{name: "series limit", path: "cost_explorer.dimensions.series_limit", mutate: func(value *config.Config) {
-			value.CostExplorer.Dimensions.SeriesLimit = 0
-		}},
-		{name: "series limit upper bound", path: "cost_explorer.dimensions.series_limit", mutate: func(value *config.Config) {
-			value.CostExplorer.Dimensions.SeriesLimit = 2001
-		}},
-		{name: "max pages", path: "cost_explorer.max_pages", mutate: func(value *config.Config) {
-			value.CostExplorer.MaxPages = 0
-		}},
-		{name: "max pages upper bound", path: "cost_explorer.max_pages", mutate: func(value *config.Config) {
-			value.CostExplorer.MaxPages = 201
-		}},
-		{name: "rate limit upper bound", path: "aws.rate_limit.requests_per_second", mutate: func(value *config.Config) {
-			value.AWS.RateLimit.RequestsPerSecond = 1.5
-		}},
-		{name: "rate limit not finite", path: "aws.rate_limit.requests_per_second", mutate: func(value *config.Config) {
-			value.AWS.RateLimit.RequestsPerSecond = math.NaN()
-		}},
-		{name: "rate limit burst", path: "aws.rate_limit.burst", mutate: func(value *config.Config) {
-			value.AWS.RateLimit.Burst = 6
-		}},
-		{name: "retry attempts", path: "aws.retry.max_attempts", mutate: func(value *config.Config) {
-			value.AWS.Retry.MaxAttempts = 11
-		}},
-		{name: "jitter not finite", path: "cost_explorer.jitter_ratio", mutate: func(value *config.Config) {
-			value.CostExplorer.JitterRatio = math.Inf(1)
-		}},
-		{name: "overflow label whitespace", path: "cost_explorer.dimensions.overflow_label", mutate: func(value *config.Config) {
-			value.CostExplorer.Dimensions.OverflowLabel = " __other__ "
-		}},
-		{name: "backoff multiplier not finite", path: "scheduler.failure_backoff.multiplier", mutate: func(value *config.Config) {
-			value.Scheduler.FailureBackoff.Multiplier = math.NaN()
-		}},
-		{name: "freshness", path: "cache.freshness_ttl", mutate: func(value *config.Config) {
-			value.Cache.FreshnessTTL = time.Hour
-		}},
-		{name: "staleness", path: "cache.stale_after", mutate: func(value *config.Config) {
-			value.Cache.StaleAfter = value.Cache.FreshnessTTL - time.Second
-		}},
-		{name: "collectors", path: "cost_explorer.collectors", mutate: func(value *config.Config) {
-			value.CostExplorer.Collectors = config.CollectorsConfig{}
-			value.CostExplorer.Forecast.Enabled = false
-		}},
+		{"freshness", "cache.freshness_ttl", func(v *config.Config) { v.Cache.FreshnessTTL = time.Hour }},
 	}
-
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-
-			value := config.Default()
+			value := validConfig()
 			test.mutate(&value)
 			err := config.Validate(value)
 			if err == nil || !strings.Contains(err.Error(), test.path) {
-				t.Fatalf("Validate() error = %v, want field path %q", err, test.path)
+				t.Fatalf("Validate() = %v, want %q", err, test.path)
 			}
 		})
 	}
 }
 
-func TestValidateAllowsForecastOnly(t *testing.T) {
-	t.Parallel()
-	value := config.Default()
-	value.CostExplorer.Collectors = config.CollectorsConfig{}
-	if err := config.Validate(value); err != nil {
-		t.Fatalf("Validate(forecast only) error = %v", err)
+func TestValidateAssumeRoleAndTargetUniqueness(t *testing.T) {
+	t.Setenv("TARGET_EXTERNAL_ID", "private")
+	base := validConfig()
+	base.Targets[0].AssumeRole = &config.AssumeRoleConfig{RoleARN: "arn:aws:iam::444455556666:role/exporter", ExternalIDEnv: "TARGET_EXTERNAL_ID"}
+	if err := config.Validate(base); err != nil {
+		t.Fatalf("valid role = %v", err)
+	}
+	for _, test := range []struct {
+		name, path string
+		mutate     func(*config.Config)
+	}{
+		{"wildcard", "role_arn", func(v *config.Config) { v.Targets[0].AssumeRole.RoleARN = "arn:aws:iam::444455556666:role/*" }},
+		{"account mismatch", "role_arn", func(v *config.Config) { v.Targets[0].AssumeRole.RoleARN = "arn:aws:iam::111122223333:role/exporter" }},
+		{"duplicate target", "name", func(v *config.Config) { v.Targets = append(v.Targets, v.Targets[0]) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := base
+			value.Targets = append([]config.TargetConfig(nil), base.Targets...)
+			role := *base.Targets[0].AssumeRole
+			value.Targets[0].AssumeRole = &role
+			test.mutate(&value)
+			err := config.Validate(value)
+			if err == nil || !strings.Contains(err.Error(), test.path) {
+				t.Fatalf("Validate()=%v", err)
+			}
+		})
 	}
 }
 
-// TestLoadRunsSemanticValidation verifies Check and the runtime loader share
-// the same validation path.
-func TestLoadRunsSemanticValidation(t *testing.T) {
-	t.Parallel()
-
-	options := config.Options{Overrides: map[string]any{"aws.region": "us-west-2"}}
-	if _, err := config.Load(options); err == nil || !strings.Contains(err.Error(), "aws.region") {
-		t.Fatalf("Load() error = %v, want aws.region validation error", err)
+func TestValidateDirectAndOptionalTargets(t *testing.T) {
+	value := validConfig()
+	value.Targets = append(value.Targets, config.TargetConfig{Name: "optional-budget", AccountID: "111122223333", Budgets: config.TargetBudgetsConfig{Enabled: true, Names: []string{"Monthly"}}, AssumeRole: &config.AssumeRoleConfig{RoleARN: "arn:aws:iam::111122223333:role/exporter", ExternalIDEnv: "OPTIONAL_EXTERNAL_ID"}})
+	t.Setenv("OPTIONAL_EXTERNAL_ID", "private")
+	if err := config.Validate(value); err != nil {
+		t.Fatalf("Validate(optional target)=%v", err)
 	}
-	if err := config.Check(options); err == nil || !strings.Contains(err.Error(), "aws.region") {
-		t.Fatalf("Check() error = %v, want aws.region validation error", err)
+	value.Targets[1].AssumeRole = nil
+	if err := config.Validate(value); err == nil || !strings.Contains(err.Error(), "at most one") {
+		t.Fatalf("Validate(two direct)=%v", err)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscostexplorer "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
+
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
 )
 
 var (
@@ -25,18 +27,24 @@ var (
 type UsagePaginator struct {
 	api      API
 	maxPages int
+	target   identity.TargetID
 	observer Observer
 }
 
 // NewUsagePaginator constructs an all-or-nothing usage paginator.
 func NewUsagePaginator(api API, maxPages int, observer Observer) (*UsagePaginator, error) {
+	return NewUsagePaginatorForTarget("default", api, maxPages, observer)
+}
+
+// NewUsagePaginatorForTarget constructs a target-scoped all-or-nothing paginator.
+func NewUsagePaginatorForTarget(target identity.TargetID, api API, maxPages int, observer Observer) (*UsagePaginator, error) {
 	if maxPages <= 0 {
 		return nil, fmt.Errorf("%w: got %d", ErrInvalidPageLimit, maxPages)
 	}
 	if observer == nil {
 		observer = discardObserver{}
 	}
-	return &UsagePaginator{api: api, maxPages: maxPages, observer: observer}, nil
+	return &UsagePaginator{api: api, maxPages: maxPages, target: target, observer: observer}, nil
 }
 
 // Read retrieves every page without mutating the caller's input.
@@ -70,7 +78,7 @@ func (paginator *UsagePaginator) Read(
 			return nil, fmt.Errorf("%w: page %d is nil", ErrInvalidPage, page)
 		}
 		results = append(results, output.ResultsByTime...)
-		paginator.observer.ObservePaginationPage(operationCostAndUsage)
+		paginator.observer.ObservePaginationPage(paginator.target, operationCostAndUsage)
 
 		token := aws.ToString(output.NextPageToken)
 		if token == "" {

@@ -11,6 +11,7 @@ import (
 	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
 )
 
@@ -25,13 +26,18 @@ type UsageAdapter struct {
 
 // NewUsageAdapter validates and constructs a usage adapter.
 func NewUsageAdapter(api API, maxPages int, costMetric string, observer Observer) (*UsageAdapter, error) {
+	return NewUsageAdapterForTarget("default", api, maxPages, costMetric, observer)
+}
+
+// NewUsageAdapterForTarget constructs a target-scoped usage adapter.
+func NewUsageAdapterForTarget(target identity.TargetID, api API, maxPages int, costMetric string, observer Observer) (*UsageAdapter, error) {
 	if api == nil {
 		return nil, ErrNilUsageAPI
 	}
 	if costMetric == "" {
 		return nil, fmt.Errorf("%w: cost metric must not be empty", ErrInvalidResponse)
 	}
-	paginator, err := NewUsagePaginator(api, maxPages, observer)
+	paginator, err := NewUsagePaginatorForTarget(target, api, maxPages, observer)
 	if err != nil {
 		return nil, err
 	}

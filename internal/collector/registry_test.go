@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/collector"
-	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 )
 
 var errFactory = errors.New("factory failed")
@@ -22,9 +23,13 @@ func (stub stubCollector) Name() string {
 	return stub.name
 }
 
+func (stub stubCollector) ID() identity.CollectorID {
+	return identity.CollectorID{Target: "test", Name: stub.name}
+}
+
 // Collect returns an empty snapshot for registry contract tests.
-func (stub stubCollector) Collect(context.Context, time.Time) (cost.PartialSnapshot, error) {
-	return cost.NewSnapshot(nil, nil), nil
+func (stub stubCollector) Collect(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+	return snapshot.New(nil, nil, nil, nil), nil
 }
 
 // TestRegistryRejectsInvalidRegistrations verifies nil and duplicate factories
@@ -72,7 +77,7 @@ func TestRegistryBuildUsesExplicitOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() returned an unexpected error: %v", err)
 	}
-	if len(built) != 2 || built[0].Name() != "second" || built[1].Name() != "first" {
+	if len(built) != 2 || built[0].ID().Name != "second" || built[1].ID().Name != "first" {
 		t.Fatalf("Build() order = %v, want [second first]", collectorNames(built))
 	}
 }
@@ -100,7 +105,7 @@ func TestRegistryBuildReportsUnknownAndFactoryErrors(t *testing.T) {
 func collectorNames(values []collector.Collector) []string {
 	names := make([]string, 0, len(values))
 	for _, value := range values {
-		names = append(names, value.Name())
+		names = append(names, value.ID().Name)
 	}
 
 	return names

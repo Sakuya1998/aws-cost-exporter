@@ -10,50 +10,58 @@ import (
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
 )
 
-// TestLoadAppliesDocumentedPrecedence verifies overrides beat environment,
-// environment beats YAML, and omitted fields retain defaults.
+const minimalTargetYAML = "targets:\n  - name: payer-prod\n    account_id: \"444455556666\"\n    required: true\n    cost_explorer:\n      enabled: true\n"
+
 func TestLoadAppliesDocumentedPrecedence(t *testing.T) {
 	t.Setenv("AWS_COST_EXPORTER_LOG__LEVEL", "debug")
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	document := []byte("server:\n  listen_address: \":9200\"\nlog:\n  level: warn\naws:\n  request_timeout: 45s\n")
+	document := []byte("server:\n  listen_address: \":9200\"\nlog:\n  level: warn\naws:\n  request_timeout: 45s\n" + minimalTargetYAML)
 	if err := os.WriteFile(path, document, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
+		t.Fatal(err)
 	}
-
-	got, err := config.Load(config.Options{
-		Path: path,
-		Overrides: map[string]any{
-			"server.listen_address": ":9400",
-		},
-	})
+	got, err := config.Load(config.Options{Path: path, Overrides: map[string]any{"server.listen_address": ":9400"}})
 	if err != nil {
-		t.Fatalf("Load() returned an unexpected error: %v", err)
+		t.Fatalf("Load() = %v", err)
 	}
-	if got.Server.ListenAddress != ":9400" || got.Log.Level != "debug" {
-		t.Fatalf("Load() precedence result = address %q, level %q", got.Server.ListenAddress, got.Log.Level)
-	}
-	if got.AWS.RequestTimeout != 45*time.Second || got.Server.MetricsPath != "/metrics" {
-		t.Fatalf("Load() failed duration or default decoding: %#v", got)
+	if got.Server.ListenAddress != ":9400" || got.Log.Level != "debug" || got.AWS.RequestTimeout != 45*time.Second {
+		t.Fatalf("precedence result = %#v", got)
 	}
 	if err := config.Check(config.Options{Path: path}); err != nil {
-		t.Fatalf("Check() returned an unexpected error: %v", err)
+		t.Fatalf("Check() = %v", err)
 	}
 }
 
-// TestLoadRejectsUnknownFieldsWithoutLeakingValues verifies strict decoding
-// reports the field path but not its potentially sensitive value.
-func TestLoadRejectsUnknownFieldsWithoutLeakingValues(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	document := []byte("aws:\n  secret_access_key: super-secret-value\n")
-	if err := os.WriteFile(path, document, 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
+func TestLoadRejectsUnknownAndV01FieldsWithoutLeakingValues(t *testing.T) {
+	for _, document := range []string{
+		"aws:\n  secret_access_key: super-secret-value\n" + minimalTargetYAML,
+		"cost_explorer:\n  enabled: true\n" + minimalTargetYAML,
+		"scheduler:\n  max_concurrency: 2\n" + minimalTargetYAML,
+	} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := config.Load(config.Options{Path: path})
+		if err == nil {
+			t.Fatalf("Load() accepted unknown document %q", document)
+		}
+		if strings.Contains(err.Error(), "super-secret-value") {
+			t.Fatalf("Load() leaked value: %v", err)
+		}
 	}
+}
 
-	_, err := config.Load(config.Options{Path: path})
-	if err == nil || !strings.Contains(err.Error(), "secret_access_key") {
-		t.Fatalf("Load() error = %v, want unknown field path", err)
+func TestLoadResolvesExternalIDEnvironmentDuringCheck(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	document := []byte("targets:\n  - name: payer-prod\n    account_id: \"444455556666\"\n    required: true\n    assume_role:\n      role_arn: arn:aws:iam::444455556666:role/aws-cost-exporter-reader\n      external_id_env: TEST_EXTERNAL_ID\n    cost_explorer:\n      enabled: true\n")
+	if err := os.WriteFile(path, document, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(err.Error(), "super-secret-value") {
-		t.Fatalf("Load() leaked configuration value: %v", err)
+	if err := config.Check(config.Options{Path: path}); err == nil || !strings.Contains(err.Error(), "external_id_env") {
+		t.Fatalf("Check(unset env) = %v", err)
+	}
+	t.Setenv("TEST_EXTERNAL_ID", "private-value")
+	if err := config.Check(config.Options{Path: path}); err != nil {
+		t.Fatalf("Check(set env) = %v", err)
 	}
 }

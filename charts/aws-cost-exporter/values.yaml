@@ -50,6 +50,10 @@ resources: {}
 
 config:
   existingConfigMap: ""
+  externalIdSecretRefs: []
+  # - envName: AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID
+  #   secretName: aws-cost-exporter-external-ids
+  #   secretKey: payer-prod
   data:
     server:
       listen_address: ":8080"
@@ -59,8 +63,15 @@ config:
       format: json
     aws:
       region: us-east-1
-    cost_explorer:
-      max_pages: 50
+    targets:
+      - name: payer-prod
+        account_id: "444455556666"
+        required: true
+        cost_explorer:
+          enabled: true
+    collection:
+      cost_explorer:
+        max_pages: 50
 
 serviceMonitor:
   enabled: false
@@ -74,7 +85,7 @@ prometheusRule:
     - name: aws-cost-exporter
       rules:
         - alert: AWSCostExporterCollectorDown
-          expr: max by (collector) (aws_cost_exporter_collector_up == 0)
+          expr: max by (target, collector) (aws_cost_exporter_collector_up == 0)
           for: 15m
           labels:
             severity: warning

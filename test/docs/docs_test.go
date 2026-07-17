@@ -52,7 +52,8 @@ func TestREADMETracksProductionMetricNames(t *testing.T) {
 	sources := []struct {
 		name, prefix, pattern string
 	}{
-		{"cost.go", "aws_cost_", `newDesc\("([^"]+)"`},
+		{"cost.go", "aws_cost_", `costDesc\("([^"]+)"`},
+		{"cost.go", "aws_budget_", `budgetDesc\("([^"]+)"`},
 		{"exporter.go", "aws_cost_exporter_", `(?:selfDesc|counter|histogram)\("([^"]+)"`},
 	}
 	for _, source := range sources {
@@ -86,7 +87,7 @@ func TestIAMExamplesAreValidAndLeastPrivilege(t *testing.T) {
 	directory := filepath.Join("..", "..", "examples", "iam")
 	files := []string{
 		"mvp-readonly.json", "organizations-readonly.json",
-		"assume-role-trust.json", "assume-role-permissions.json",
+		"budgets-readonly.json", "assume-role-trust.json", "assume-role-permissions.json",
 	}
 	for _, name := range files {
 		var document any
@@ -121,6 +122,9 @@ func TestIAMExamplesAreValidAndLeastPrivilege(t *testing.T) {
 	trust := read(t, filepath.Join(directory, "assume-role-trust.json"))
 	if !strings.Contains(trust, "sts:ExternalId") || !strings.Contains(trust, `"AWS"`) {
 		t.Error("trust example must identify a principal and require ExternalId")
+	}
+	if budgets := read(t, filepath.Join(directory, "budgets-readonly.json")); !strings.Contains(budgets, "budgets:ViewBudget") {
+		t.Error("Budgets example lacks budgets:ViewBudget")
 	}
 }
 

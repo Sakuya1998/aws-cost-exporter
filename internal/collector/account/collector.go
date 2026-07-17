@@ -8,6 +8,8 @@ import (
 
 	basecollector "github.com/sakuya1998/aws-cost-exporter/internal/collector"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
 )
 
@@ -30,6 +32,7 @@ type Reader = basecollector.GroupedReader
 
 // Collector retrieves validated linked-account costs.
 type Collector struct {
+	id               identity.CollectorID
 	reader           Reader
 	linkedAccountIDs []string
 	seriesLimit      int
@@ -39,6 +42,11 @@ type Collector struct {
 
 // New validates and copies dependencies and the optional account allowlist.
 func New(reader Reader, linkedAccountIDs []string, seriesLimit int, overflowLabel string, observers ...basecollector.OverflowObserver) (*Collector, error) {
+	return NewForTarget("default", reader, linkedAccountIDs, seriesLimit, overflowLabel, observers...)
+}
+
+// NewForTarget constructs a target-scoped account collector.
+func NewForTarget(target identity.TargetID, reader Reader, linkedAccountIDs []string, seriesLimit int, overflowLabel string, observers ...basecollector.OverflowObserver) (*Collector, error) {
 	if reader == nil {
 		return nil, ErrNilReader
 	}
@@ -54,6 +62,7 @@ func New(reader Reader, linkedAccountIDs []string, seriesLimit int, overflowLabe
 		}
 	}
 	return &Collector{
+		id:     identity.CollectorID{Target: target, Name: Name},
 		reader: reader, linkedAccountIDs: append([]string(nil), linkedAccountIDs...),
 		seriesLimit: seriesLimit, overflowLabel: overflowLabel,
 		observers: append([]basecollector.OverflowObserver(nil), observers...),
@@ -63,13 +72,16 @@ func New(reader Reader, linkedAccountIDs []string, seriesLimit int, overflowLabe
 // Name returns the stable collector identifier.
 func (collector *Collector) Name() string { return Name }
 
+// ID returns the target-scoped collector identity.
+func (collector *Collector) ID() identity.CollectorID { return collector.id }
+
 // Collect retrieves daily and month-to-date account costs atomically.
 func (collector *Collector) Collect(
 	ctx context.Context,
 	reference time.Time,
-) (cost.PartialSnapshot, error) {
+) (snapshot.PartialSnapshot, error) {
 	return basecollector.CollectGrouped(
-		ctx, reference, cost.DimensionAccount, collector.seriesLimit, collector.overflowLabel,
+		ctx, reference, collector.id.Target, cost.DimensionAccount, collector.seriesLimit, collector.overflowLabel,
 		collector.reader,
 		func(query *ports.CostQuery) {
 			query.LinkedAccountIDs = append([]string(nil), collector.linkedAccountIDs...)

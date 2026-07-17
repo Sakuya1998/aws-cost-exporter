@@ -8,6 +8,8 @@ import (
 
 	basecollector "github.com/sakuya1998/aws-cost-exporter/internal/collector"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 )
 
 // Name is the stable registry and telemetry identifier.
@@ -29,6 +31,7 @@ type Reader = basecollector.GroupedReader
 
 // Collector retrieves region-grouped costs under a bounded series budget.
 type Collector struct {
+	id            identity.CollectorID
 	reader        Reader
 	seriesLimit   int
 	overflowLabel string
@@ -37,6 +40,11 @@ type Collector struct {
 
 // New validates dependencies and constructs a region collector.
 func New(reader Reader, seriesLimit int, overflowLabel string, observers ...basecollector.OverflowObserver) (*Collector, error) {
+	return NewForTarget("default", reader, seriesLimit, overflowLabel, observers...)
+}
+
+// NewForTarget constructs a target-scoped region collector.
+func NewForTarget(target identity.TargetID, reader Reader, seriesLimit int, overflowLabel string, observers ...basecollector.OverflowObserver) (*Collector, error) {
 	if reader == nil {
 		return nil, ErrNilReader
 	}
@@ -47,6 +55,7 @@ func New(reader Reader, seriesLimit int, overflowLabel string, observers ...base
 		return nil, ErrInvalidOverflowLabel
 	}
 	return &Collector{
+		id:     identity.CollectorID{Target: target, Name: Name},
 		reader: reader, seriesLimit: seriesLimit, overflowLabel: overflowLabel,
 		observers: append([]basecollector.OverflowObserver(nil), observers...),
 	}, nil
@@ -55,13 +64,16 @@ func New(reader Reader, seriesLimit int, overflowLabel string, observers ...base
 // Name returns the stable collector identifier.
 func (collector *Collector) Name() string { return Name }
 
+// ID returns the target-scoped collector identity.
+func (collector *Collector) ID() identity.CollectorID { return collector.id }
+
 // Collect applies the series budget independently to each metric window.
 func (collector *Collector) Collect(
 	ctx context.Context,
 	reference time.Time,
-) (cost.PartialSnapshot, error) {
+) (snapshot.PartialSnapshot, error) {
 	return basecollector.CollectGrouped(
-		ctx, reference, cost.DimensionRegion, collector.seriesLimit, collector.overflowLabel,
+		ctx, reference, collector.id.Target, cost.DimensionRegion, collector.seriesLimit, collector.overflowLabel,
 		collector.reader, nil, nil, collector.observers...,
 	)
 }

@@ -10,79 +10,84 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 )
 
-// TestRunnerRefreshesAtStartupAndJitteredIntervals verifies periodic publication.
-func TestRunnerRefreshesAtStartupAndJitteredIntervals(t *testing.T) {
+func TestRunnerRefreshesIndependentJobs(t *testing.T) {
 	clock := newFakeClock()
-	calls := make(chan struct{}, 2)
 	store := newFakeStore()
-	subject, _ := New([]Collector{&fakeCollector{name: "total", collect: func(context.Context, time.Time) (cost.PartialSnapshot, error) {
-		calls <- struct{}{}
-		return cost.PartialSnapshot{}, nil
-	}}}, store, clock, func() float64 { return 0.5 }, Config{
-		Interval: 10 * time.Minute, StartupRefresh: true, JitterRatio: 0.1, MaxConcurrency: 1,
-		Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2},
+	calls := make(chan identity.CollectorID, 4)
+	a := newCollector("target-a", "total", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+		calls <- id("target-a", "total")
+		return snapshot.PartialSnapshot{}, nil
 	})
+	b := newCollector("target-b", "budgets", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+		calls <- id("target-b", "budgets")
+		return snapshot.PartialSnapshot{}, nil
+	})
+	runner, err := NewJobs([]Job{{Collector: a, Interval: 10 * time.Minute, StartupRefresh: true}, {Collector: b, Interval: time.Hour, StartupRefresh: false}}, store, clock, func() float64 { return .5 }, validSchedulerConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { subject.Run(ctx); close(done) }()
-	receive(t, calls)
-	receive(t, store.published)
-	timer := receive(t, clock.timers)
-	if timer.delay != 10*time.Minute+30*time.Second {
-		t.Fatalf("timer delay = %v, want 10m30s", timer.delay)
+	go func() { runner.Run(ctx); close(done) }()
+	if got := receive(t, calls); got != a.ID() {
+		t.Fatalf("startup=%v", got)
 	}
-	timer.fire <- clock.Now()
-	receive(t, calls)
+	receive(t, store.published)
+	timers := []fakeTimer{receive(t, clock.timers), receive(t, clock.timers)}
+	delays := map[time.Duration]fakeTimer{}
+	for _, timer := range timers {
+		delays[timer.delay] = timer
+	}
+	if delays[10*time.Minute+30*time.Second].fire == nil || delays[time.Hour+3*time.Minute].fire == nil {
+		t.Fatalf("job delays=%v", delays)
+	}
+	delays[time.Hour+3*time.Minute].fire <- clock.Now()
+	if got := receive(t, calls); got != b.ID() {
+		t.Fatalf("periodic=%v", got)
+	}
 	receive(t, store.published)
 	cancel()
 	receive(t, done)
 }
 
-// TestRunnerEnforcesConcurrencyAndSingleFlight verifies bounded overlapping runs.
-func TestRunnerEnforcesConcurrencyAndSingleFlight(t *testing.T) {
+func TestRunnerEnforcesGlobalConcurrencyAndTargetSingleFlight(t *testing.T) {
 	clock := newFakeClock()
-	started, release := make(chan string, 2), make(chan struct{}, 2)
+	started, release := make(chan identity.CollectorID, 2), make(chan struct{}, 2)
 	var mu sync.Mutex
-	calls, active, maximum := map[string]int{}, 0, 0
-	makeCollector := func(name string) Collector {
-		return &fakeCollector{name: name, collect: func(context.Context, time.Time) (cost.PartialSnapshot, error) {
+	active, maximum := 0, 0
+	makeOne := func(target string) *fakeCollector {
+		return newCollector(target, "total", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
 			mu.Lock()
-			calls[name]++
 			active++
 			if active > maximum {
 				maximum = active
 			}
 			mu.Unlock()
-			started <- name
+			started <- id(target, "total")
 			<-release
 			mu.Lock()
 			active--
 			mu.Unlock()
-			return cost.PartialSnapshot{}, nil
-		}}
+			return snapshot.PartialSnapshot{}, nil
+		})
 	}
-	store := newFakeStore()
 	observer := newFakeObserver()
-	subject, _ := New(
-		[]Collector{makeCollector("one"), makeCollector("two")},
-		store, clock, func() float64 { return 0 }, Config{
-			Interval: time.Hour, StartupRefresh: true, MaxConcurrency: 1,
-			Backoff:  BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2},
-			Observer: observer,
-		},
-	)
+	store := newFakeStore()
+	runner, _ := NewJobs([]Job{{Collector: makeOne("a"), Interval: time.Hour, StartupRefresh: true}, {Collector: makeOne("b"), Interval: time.Hour, StartupRefresh: true}}, store, clock, nil, Config{JitterRatio: 0, MaxConcurrency: 1, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { subject.Run(ctx); close(done) }()
+	go func() { runner.Run(ctx); close(done) }()
 	receive(t, started)
-	receive(t, clock.timers).fire <- clock.Now()
-	receive(t, clock.timers)
+	timerA, timerB := receive(t, clock.timers), receive(t, clock.timers)
+	timerA.fire <- clock.Now()
+	timerB.fire <- clock.Now()
 	for range 2 {
 		if event := receive(t, observer.skipped); event.reason != "single_flight" {
-			t.Fatalf("skip event = %#v", event)
+			t.Fatalf("skip=%#v", event)
 		}
 	}
 	release <- struct{}{}
@@ -90,175 +95,211 @@ func TestRunnerEnforcesConcurrencyAndSingleFlight(t *testing.T) {
 	release <- struct{}{}
 	receive(t, store.published)
 	receive(t, store.published)
-	for range 2 {
-		if event := receive(t, observer.refresh); event.status != "success" {
-			t.Fatalf("refresh event = %#v", event)
-		}
-	}
 	cancel()
 	receive(t, done)
 	mu.Lock()
 	defer mu.Unlock()
-	if calls["one"] != 1 || calls["two"] != 1 || maximum != 1 {
-		t.Fatalf("calls=%v maximum=%d, want one each and maximum 1", calls, maximum)
+	if maximum != 1 {
+		t.Fatalf("maximum concurrency=%d", maximum)
 	}
 }
 
-// TestRunnerRecordsFailuresAndRejectsInvalidConfig verifies safe failures.
-func TestRunnerRecordsFailuresAndRejectsInvalidConfig(t *testing.T) {
+func TestRunnerFailureIsolationLoggingAndCancellation(t *testing.T) {
+	clock := newFakeClock()
 	store := newFakeStore()
 	observer := newFakeObserver()
 	var logs bytes.Buffer
-	subject, _ := New([]Collector{&fakeCollector{
-		name: "forecast", collect: func(context.Context, time.Time) (cost.PartialSnapshot, error) {
-			return cost.PartialSnapshot{}, errors.New("unavailable")
-		},
-	}}, store, newFakeClock(), nil, Config{
-		Interval: time.Hour, StartupRefresh: true, MaxConcurrency: 1,
-		Backoff:  BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2},
-		Observer: observer,
-		Logger:   slog.New(slog.NewJSONHandler(&logs, nil)),
+	failing := newCollector("broken-target", "forecast", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+		return snapshot.PartialSnapshot{}, errors.New("private unavailable detail")
 	})
+	healthy := newCollector("healthy-target", "total", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+		return snapshot.PartialSnapshot{}, nil
+	})
+	runner, _ := NewJobs([]Job{{Collector: failing, Interval: time.Hour, StartupRefresh: true}, {Collector: healthy, Interval: time.Hour, StartupRefresh: true}}, store, clock, nil, Config{MaxConcurrency: 2, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer, Logger: slog.New(slog.NewJSONHandler(&logs, nil))})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { subject.Run(ctx); close(done) }()
-	if name := receive(t, store.failed); name != "forecast" {
-		t.Fatalf("failed collector = %q, want forecast", name)
+	go func() { runner.Run(ctx); close(done) }()
+	failed := receive(t, store.failed)
+	published := receive(t, store.published)
+	if failed != failing.ID() || published != healthy.ID() {
+		t.Fatalf("failed=%v published=%v", failed, published)
 	}
-	if event := receive(t, observer.refresh); event.status != "error" {
-		t.Fatalf("refresh event = %#v, want error", event)
-	}
-	if text := logs.String(); !strings.Contains(text, `"msg":"collector refresh failed"`) ||
-		!strings.Contains(text, `"collector":"forecast"`) ||
-		!strings.Contains(text, `"error_kind":"unknown"`) ||
-		strings.Contains(text, "unavailable") {
-		t.Fatalf("collector failure log is missing bounded fields or leaked error text: %s", text)
+	text := logs.String()
+	if !strings.Contains(text, `"target":"broken-target"`) || !strings.Contains(text, `"collector":"forecast"`) || strings.Contains(text, "private unavailable") {
+		t.Fatalf("unsafe log=%s", text)
 	}
 	cancel()
 	receive(t, done)
-	if runner, err := New(nil, store, nil, nil, Config{}); runner != nil || err == nil {
-		t.Fatalf("New(invalid) = %#v, %v; want error", runner, err)
-	}
 }
 
-// TestRunnerObservesCanceledAttempts verifies shutdown status classification.
-func TestRunnerObservesCanceledAttempts(t *testing.T) {
+func TestRunnerStopsCanceledCollectorAndClearsState(t *testing.T) {
 	started := make(chan struct{})
 	observer := newFakeObserver()
-	instance := &fakeCollector{name: "total", collect: func(ctx context.Context, _ time.Time) (cost.PartialSnapshot, error) {
+	collector := newCollector("a", "total", func(ctx context.Context, _ time.Time) (snapshot.PartialSnapshot, error) {
 		close(started)
 		<-ctx.Done()
-		return cost.PartialSnapshot{}, ctx.Err()
-	}}
-	subject, _ := New([]Collector{instance}, newFakeStore(), newFakeClock(), nil, Config{
-		Interval: time.Hour, StartupRefresh: true, MaxConcurrency: 1,
-		Backoff:  BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2},
-		Observer: observer,
+		return snapshot.PartialSnapshot{}, ctx.Err()
 	})
+	runner, _ := NewJobs([]Job{{Collector: collector, Interval: time.Hour, StartupRefresh: true}}, newFakeStore(), newFakeClock(), nil, Config{MaxConcurrency: 1, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { subject.Run(ctx); close(done) }()
+	go func() { runner.Run(ctx); close(done) }()
 	receive(t, started)
 	cancel()
 	if event := receive(t, observer.refresh); event.status != "canceled" {
-		t.Fatalf("refresh event = %#v, want canceled", event)
+		t.Fatalf("refresh=%#v", event)
 	}
 	receive(t, done)
-	subject.runningMu.Lock()
-	_, running := subject.running["total"]
-	subject.runningMu.Unlock()
+	runner.runningMu.Lock()
+	running := runner.running[collector.ID()]
+	runner.runningMu.Unlock()
 	if running {
-		t.Fatal("running flag not cleared after worker shutdown")
+		t.Fatal("running state leaked")
 	}
+}
+
+func TestNewJobsRejectsInvalidAndDuplicateIDs(t *testing.T) {
+	store, clock := newFakeStore(), newFakeClock()
+	collector := newCollector("a", "total", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+		return snapshot.PartialSnapshot{}, nil
+	})
+	if runner, err := NewJobs(nil, store, clock, nil, Config{}); runner != nil || err == nil {
+		t.Fatal("accepted empty jobs")
+	}
+	config := validSchedulerConfig()
+	if runner, err := NewJobs([]Job{{Collector: collector, Interval: time.Hour}, {Collector: collector, Interval: time.Hour}}, store, clock, nil, config); runner != nil || err == nil {
+		t.Fatal("accepted duplicate CollectorID")
+	}
+}
+
+func TestRunnerTreatsCachePublishErrorAsCollectorFailure(t *testing.T) {
+	store := newFakeStore()
+	store.publishErr = errors.New("invalid snapshot")
+	observer := newFakeObserver()
+	collector := newCollector("a", "total", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+		return snapshot.PartialSnapshot{}, nil
+	})
+	runner, _ := NewJobs([]Job{{Collector: collector, Interval: time.Hour, StartupRefresh: true}}, store, newFakeClock(), nil, Config{
+		MaxConcurrency: 1, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { runner.Run(ctx); close(done) }()
+	if event := receive(t, observer.refresh); event.status != "error" {
+		t.Fatalf("refresh=%#v", event)
+	}
+	if receive(t, store.failed) != collector.ID() {
+		t.Fatal("publish failure did not record collector failure")
+	}
+	if receive(t, observer.cacheErrors) != collector.ID() {
+		t.Fatal("publish error was not observed")
+	}
+	cancel()
+	receive(t, done)
 }
 
 type fakeCollector struct {
-	name    string
-	collect func(context.Context, time.Time) (cost.PartialSnapshot, error)
+	idValue identity.CollectorID
+	collect func(context.Context, time.Time) (snapshot.PartialSnapshot, error)
 }
 
-func (collector *fakeCollector) Name() string { return collector.name }
-func (collector *fakeCollector) Collect(ctx context.Context, now time.Time) (cost.PartialSnapshot, error) {
-	return collector.collect(ctx, now)
+func newCollector(target, name string, collect func(context.Context, time.Time) (snapshot.PartialSnapshot, error)) *fakeCollector {
+	return &fakeCollector{idValue: id(target, name), collect: collect}
+}
+func (value *fakeCollector) ID() identity.CollectorID { return value.idValue }
+func (value *fakeCollector) Collect(ctx context.Context, now time.Time) (snapshot.PartialSnapshot, error) {
+	return value.collect(ctx, now)
+}
+func id(target, name string) identity.CollectorID {
+	return identity.CollectorID{Target: identity.TargetID(target), Name: name}
 }
 
 type fakeStore struct {
-	published chan string
-	failed    chan string
+	published, failed chan identity.CollectorID
+	publishErr        error
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{published: make(chan string, 8), failed: make(chan string, 8)}
+	return &fakeStore{published: make(chan identity.CollectorID, 8), failed: make(chan identity.CollectorID, 8)}
 }
-func (store *fakeStore) Publish(name string, _ cost.PartialSnapshot) error {
-	store.published <- name
+func (value *fakeStore) Publish(id identity.CollectorID, _ snapshot.PartialSnapshot) error {
+	if value.publishErr != nil {
+		return value.publishErr
+	}
+	value.published <- id
 	return nil
 }
-func (store *fakeStore) RecordFailure(name string) error {
-	store.failed <- name
-	return nil
-}
+func (value *fakeStore) RecordFailure(id identity.CollectorID) error { value.failed <- id; return nil }
 
 type fakeTimer struct {
 	delay time.Duration
 	fire  chan time.Time
 }
-
-type refreshEvent struct{ name, status string }
-type skipEvent struct{ name, reason string }
-type fakeObserver struct {
-	refresh chan refreshEvent
-	skipped chan skipEvent
-}
-
-func newFakeObserver() *fakeObserver {
-	return &fakeObserver{refresh: make(chan refreshEvent, 4), skipped: make(chan skipEvent, 4)}
-}
-func (observer *fakeObserver) ObserveRefresh(name, status string, _ time.Duration) {
-	observer.refresh <- refreshEvent{name, status}
-}
-func (observer *fakeObserver) ObserveSkipped(name, reason string) {
-	observer.skipped <- skipEvent{name, reason}
-}
-func (observer *fakeObserver) ObserveCachePublishError(string, string) {}
-
 type fakeClock struct {
 	now    time.Time
 	timers chan fakeTimer
 }
 
 func newFakeClock() *fakeClock {
-	return &fakeClock{now: time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC), timers: make(chan fakeTimer, 4)}
+	return &fakeClock{now: time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC), timers: make(chan fakeTimer, 16)}
 }
-func (clock *fakeClock) Now() time.Time { return clock.now }
-func (clock *fakeClock) NewTimer(delay time.Duration) Timer {
+func (value *fakeClock) Now() time.Time { return value.now }
+func (value *fakeClock) NewTimer(delay time.Duration) Timer {
 	fire := make(chan time.Time, 1)
-	clock.timers <- fakeTimer{delay: delay, fire: fire}
+	value.timers <- fakeTimer{delay: delay, fire: fire}
 	return &fakeSchedTimer{fire: fire}
 }
 
-type fakeSchedTimer struct {
-	fire chan time.Time
-}
+type fakeSchedTimer struct{ fire chan time.Time }
 
-func (timer *fakeSchedTimer) Chan() <-chan time.Time { return timer.fire }
-func (timer *fakeSchedTimer) Stop() bool {
+func (value *fakeSchedTimer) Chan() <-chan time.Time { return value.fire }
+func (value *fakeSchedTimer) Stop() bool {
 	select {
-	case <-timer.fire:
+	case <-value.fire:
 	default:
 	}
 	return true
 }
-func (timer *fakeSchedTimer) Reset(time.Duration) bool { return false }
+func (value *fakeSchedTimer) Reset(time.Duration) bool { return false }
 
-func receive[Value any](t *testing.T, channel <-chan Value) Value {
+type refreshEvent struct {
+	id     identity.CollectorID
+	status string
+}
+type skipEvent struct {
+	id     identity.CollectorID
+	reason string
+}
+type fakeObserver struct {
+	refresh     chan refreshEvent
+	skipped     chan skipEvent
+	cacheErrors chan identity.CollectorID
+}
+
+func newFakeObserver() *fakeObserver {
+	return &fakeObserver{refresh: make(chan refreshEvent, 8), skipped: make(chan skipEvent, 8), cacheErrors: make(chan identity.CollectorID, 8)}
+}
+func (value *fakeObserver) ObserveRefresh(id identity.CollectorID, status string, _ time.Duration) {
+	value.refresh <- refreshEvent{id, status}
+}
+func (value *fakeObserver) ObserveSkipped(id identity.CollectorID, reason string) {
+	value.skipped <- skipEvent{id, reason}
+}
+func (value *fakeObserver) ObserveCachePublishError(id identity.CollectorID, _ string) {
+	value.cacheErrors <- id
+}
+
+func validSchedulerConfig() Config {
+	return Config{JitterRatio: .1, MaxConcurrency: 2, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}}
+}
+func receive[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()
 	select {
-	case value := <-channel:
+	case value := <-ch:
 		return value
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for scheduler event")
-		var zero Value
+		var zero T
 		return zero
 	}
 }

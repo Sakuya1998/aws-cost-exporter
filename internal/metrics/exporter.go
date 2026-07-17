@@ -2,29 +2,25 @@ package metrics
 
 import (
 	"errors"
-	"strings"
+	"sort"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
 	"github.com/sakuya1998/aws-cost-exporter/internal/version"
 )
 
-// StatusReader supplies one atomic cache and collector status view.
-type StatusReader interface {
-	Load() ports.SnapshotView
-}
+type StatusReader interface{ Load() ports.SnapshotView }
 
-// ErrInvalidExporter indicates unsafe telemetry dependencies or identities.
 var ErrInvalidExporter = errors.New("invalid exporter metrics configuration")
 
-// Exporter exposes cache state and bounded operational observations.
 type Exporter struct {
 	reader StatusReader
 	clock  ports.Clock
-	names  []string
-	known  map[string]struct{}
+	ids    []identity.CollectorID
+	known  map[identity.CollectorID]struct{}
 	build  version.Info
 
 	up, success, attempt, age, series, buildInfo  *prometheus.Desc
@@ -35,52 +31,49 @@ type Exporter struct {
 	events                                        []prometheus.Collector
 }
 
-// NewExporter constructs the complete self-observability metric set.
-func NewExporter(reader StatusReader, clock ports.Clock, build version.Info, names []string) (*Exporter, error) {
-	if reader == nil || clock == nil || len(names) == 0 {
+func NewExporter(reader StatusReader, clock ports.Clock, build version.Info, ids []identity.CollectorID) (*Exporter, error) {
+	if reader == nil || clock == nil || len(ids) == 0 {
 		return nil, ErrInvalidExporter
 	}
-	known := make(map[string]struct{}, len(names))
-	normalized := make([]string, 0, len(names))
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if _, exists := known[name]; name == "" || exists {
+	known := make(map[identity.CollectorID]struct{}, len(ids))
+	for _, id := range ids {
+		if !id.Valid() {
 			return nil, ErrInvalidExporter
 		}
-		known[name] = struct{}{}
-		normalized = append(normalized, name)
+		if _, duplicate := known[id]; duplicate {
+			return nil, ErrInvalidExporter
+		}
+		known[id] = struct{}{}
 	}
-	names = normalized
-	exporter := &Exporter{reader: reader, clock: clock, names: names, known: known, build: build}
-	exporter.up = selfDesc("collector_up", "Whether the collector's latest attempt succeeded.", []string{"collector"})
-	exporter.success = selfDesc("last_success_timestamp_seconds", "Collector's latest success Unix timestamp.", []string{"collector"})
-	exporter.attempt = selfDesc("last_attempt_timestamp_seconds", "Collector's latest attempt Unix timestamp.", []string{"collector"})
-	exporter.age = selfDesc("cache_age_seconds", "Seconds since the collector last succeeded.", []string{"collector"})
-	exporter.series = selfDesc("snapshot_series", "Current business series owned by the collector.", []string{"collector"})
-	exporter.buildInfo = selfDesc("build_info", "Build metadata for aws-cost-exporter.", []string{"version", "revision", "go_version"})
-	exporter.refresh = counter("refresh_total", "Collector refresh attempts.", []string{"collector", "status"})
-	exporter.requests = counter("aws_api_requests_total", "Cost Explorer logical SDK operations.", []string{"operation", "status"})
-	exporter.retries = counter("aws_api_retries_total", "Cost Explorer SDK retries.", []string{"operation", "reason"})
-	exporter.skipped = counter("scheduler_skipped_runs_total", "Scheduler runs skipped before execution.", []string{"collector", "reason"})
-	exporter.overflow = counter("dimension_overflow_values_total", "Dimension values processed into overflow during collection attempts.", []string{"dimension"})
-	exporter.pagination = counter("pagination_pages_total", "Cost Explorer pagination pages read successfully.", []string{"operation"})
-	exporter.cachePublishErrors = counter("cache_publish_errors_total", "Cache publish or failure-record errors.", []string{"collector", "operation"})
-	exporter.shutdownTimeouts = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "aws_cost_exporter_scheduler_shutdown_timeouts_total",
-		Help: "Scheduler shutdown waits that exceeded server.shutdown_timeout.",
+	ids = append([]identity.CollectorID(nil), ids...)
+	sort.Slice(ids, func(left, right int) bool {
+		if ids[left].Target != ids[right].Target {
+			return ids[left].Target < ids[right].Target
+		}
+		return ids[left].Name < ids[right].Name
 	})
-	exporter.refreshDuration = histogram("refresh_duration_seconds", "Collector refresh duration.", []string{"collector"}, []float64{1, 5, 10, 30, 60, 120, 300})
-	exporter.requestDuration = histogram("aws_api_request_duration_seconds", "Cost Explorer logical SDK operation duration, including rate-limit waits and retries.", []string{"operation"}, []float64{.1, .5, 1, 2, 5, 10, 30, 60})
-	exporter.events = []prometheus.Collector{
-		exporter.refresh, exporter.requests, exporter.retries, exporter.skipped,
-		exporter.overflow, exporter.pagination, exporter.cachePublishErrors,
-		exporter.shutdownTimeouts,
-		exporter.refreshDuration, exporter.requestDuration,
-	}
+	exporter := &Exporter{reader: reader, clock: clock, ids: ids, known: known, build: build}
+	targetCollector := []string{"target", "collector"}
+	exporter.up = selfDesc("collector_up", "Whether the target collector's latest attempt succeeded.", targetCollector)
+	exporter.success = selfDesc("last_success_timestamp_seconds", "Target collector's latest success Unix timestamp.", targetCollector)
+	exporter.attempt = selfDesc("last_attempt_timestamp_seconds", "Target collector's latest attempt Unix timestamp.", targetCollector)
+	exporter.age = selfDesc("cache_age_seconds", "Seconds since the target collector last succeeded.", targetCollector)
+	exporter.series = selfDesc("snapshot_series", "Current business series owned by the target collector.", targetCollector)
+	exporter.buildInfo = selfDesc("build_info", "Build metadata for aws-cost-exporter.", []string{"version", "revision", "go_version"})
+	exporter.refresh = counter("refresh_total", "Target collector refresh attempts.", []string{"target", "collector", "status"})
+	exporter.requests = counter("aws_api_requests_total", "Logical AWS SDK operations.", []string{"target", "operation", "status"})
+	exporter.retries = counter("aws_api_retries_total", "Authorized AWS SDK retry attempts.", []string{"target", "operation", "reason"})
+	exporter.skipped = counter("scheduler_skipped_runs_total", "Scheduler runs skipped before execution.", []string{"target", "collector", "reason"})
+	exporter.overflow = counter("dimension_overflow_values_total", "Dimension values processed into overflow during collection attempts.", []string{"target", "dimension"})
+	exporter.pagination = counter("pagination_pages_total", "AWS API pagination pages read successfully.", []string{"target", "operation"})
+	exporter.cachePublishErrors = counter("cache_publish_errors_total", "Cache publish or failure-record errors.", []string{"target", "collector", "operation"})
+	exporter.shutdownTimeouts = prometheus.NewCounter(prometheus.CounterOpts{Name: "aws_cost_exporter_scheduler_shutdown_timeouts_total", Help: "Scheduler shutdown waits that exceeded server.shutdown_timeout."})
+	exporter.refreshDuration = histogram("refresh_duration_seconds", "Target collector refresh duration.", []string{"target", "collector"}, []float64{1, 5, 10, 30, 60, 120, 300})
+	exporter.requestDuration = histogram("aws_api_request_duration_seconds", "Logical AWS SDK operation duration, including rate-limit waits and retries.", []string{"target", "operation"}, []float64{.1, .5, 1, 2, 5, 10, 30, 60})
+	exporter.events = []prometheus.Collector{exporter.refresh, exporter.requests, exporter.retries, exporter.skipped, exporter.overflow, exporter.pagination, exporter.cachePublishErrors, exporter.shutdownTimeouts, exporter.refreshDuration, exporter.requestDuration}
 	return exporter, nil
 }
 
-// Describe sends dynamic descriptors and delegated event descriptors.
 func (exporter *Exporter) Describe(output chan<- *prometheus.Desc) {
 	for _, desc := range []*prometheus.Desc{exporter.up, exporter.success, exporter.attempt, exporter.age, exporter.series, exporter.buildInfo} {
 		output <- desc
@@ -90,19 +83,19 @@ func (exporter *Exporter) Describe(output chan<- *prometheus.Desc) {
 	}
 }
 
-// Collect emits one atomic cache view and accumulated event metrics.
 func (exporter *Exporter) Collect(output chan<- prometheus.Metric) {
 	view, now := exporter.reader.Load(), exporter.clock.Now()
-	for _, name := range exporter.names {
-		status := view.Collectors[name]
-		output <- prometheus.MustNewConstMetric(exporter.up, prometheus.GaugeValue, boolFloat(status.Up), name)
-		output <- prometheus.MustNewConstMetric(exporter.series, prometheus.GaugeValue, float64(status.Series), name)
+	for _, id := range exporter.ids {
+		status := view.Collectors[id]
+		labels := []string{string(id.Target), id.Name}
+		output <- prometheus.MustNewConstMetric(exporter.up, prometheus.GaugeValue, boolFloat(status.Up), labels...)
+		output <- prometheus.MustNewConstMetric(exporter.series, prometheus.GaugeValue, float64(status.Series), labels...)
 		if !status.LastAttempt.IsZero() {
-			output <- prometheus.MustNewConstMetric(exporter.attempt, prometheus.GaugeValue, float64(status.LastAttempt.Unix()), name)
+			output <- prometheus.MustNewConstMetric(exporter.attempt, prometheus.GaugeValue, float64(status.LastAttempt.Unix()), labels...)
 		}
 		if !status.LastSuccess.IsZero() {
-			output <- prometheus.MustNewConstMetric(exporter.success, prometheus.GaugeValue, float64(status.LastSuccess.Unix()), name)
-			output <- prometheus.MustNewConstMetric(exporter.age, prometheus.GaugeValue, max(0, now.Sub(status.LastSuccess).Seconds()), name)
+			output <- prometheus.MustNewConstMetric(exporter.success, prometheus.GaugeValue, float64(status.LastSuccess.Unix()), labels...)
+			output <- prometheus.MustNewConstMetric(exporter.age, prometheus.GaugeValue, max(0, now.Sub(status.LastSuccess).Seconds()), labels...)
 		}
 	}
 	output <- prometheus.MustNewConstMetric(exporter.buildInfo, prometheus.GaugeValue, 1, exporter.build.Version, exporter.build.Revision, exporter.build.GoVersion)
@@ -111,63 +104,54 @@ func (exporter *Exporter) Collect(output chan<- prometheus.Metric) {
 	}
 }
 
-// ObserveRefresh records one collector attempt.
-func (exporter *Exporter) ObserveRefresh(name, status string, duration time.Duration) {
-	if !exporter.isKnown(name) {
+func (exporter *Exporter) ObserveRefresh(id identity.CollectorID, status string, duration time.Duration) {
+	if !exporter.isKnown(id) {
 		return
 	}
-	exporter.refresh.WithLabelValues(name, bounded(status, "success", "error", "canceled")).Inc()
-	exporter.refreshDuration.WithLabelValues(name).Observe(seconds(duration))
+	exporter.refresh.WithLabelValues(string(id.Target), id.Name, bounded(status, "success", "error", "canceled")).Inc()
+	exporter.refreshDuration.WithLabelValues(string(id.Target), id.Name).Observe(seconds(duration))
 }
 
-// ObserveRequest records one Cost Explorer API request.
-func (exporter *Exporter) ObserveRequest(operation, status string, duration time.Duration) {
-	operation = bounded(operation, "GetCostAndUsage", "GetCostForecast")
-	exporter.requests.WithLabelValues(operation, bounded(status, "success", "error", "canceled", "throttle")).Inc()
-	exporter.requestDuration.WithLabelValues(operation).Observe(seconds(duration))
+func (exporter *Exporter) ObserveRequest(target identity.TargetID, operation, status string, duration time.Duration) {
+	operation = boundedOperation(operation)
+	exporter.requests.WithLabelValues(string(target), operation, bounded(status, "success", "error", "canceled", "throttle")).Inc()
+	exporter.requestDuration.WithLabelValues(string(target), operation).Observe(seconds(duration))
 }
 
-// ObserveRetry records one Cost Explorer SDK retry.
-func (exporter *Exporter) ObserveRetry(operation, reason string) {
-	exporter.retries.WithLabelValues(
-		bounded(operation, "GetCostAndUsage", "GetCostForecast"),
-		boundedDefault(reason, "other", "throttle", "timeout", "other"),
-	).Inc()
+func (exporter *Exporter) ObserveRetry(target identity.TargetID, operation, reason string) {
+	exporter.retries.WithLabelValues(string(target), boundedOperation(operation), boundedDefault(reason, "other", "throttle", "timeout", "other")).Inc()
 }
 
-// ObserveSkipped records one scheduler single-flight skip.
-func (exporter *Exporter) ObserveSkipped(name, reason string) {
-	if exporter.isKnown(name) {
-		exporter.skipped.WithLabelValues(name, bounded(reason, "single_flight")).Inc()
+func (exporter *Exporter) ObserveSkipped(id identity.CollectorID, reason string) {
+	if exporter.isKnown(id) {
+		exporter.skipped.WithLabelValues(string(id.Target), id.Name, bounded(reason, "single_flight")).Inc()
 	}
 }
 
-// ObserveOverflow records dimension values folded into an overflow series.
-func (exporter *Exporter) ObserveOverflow(dimension string, count int) {
+func (exporter *Exporter) ObserveOverflow(target identity.TargetID, dimension string, count int) {
 	if count > 0 {
-		exporter.overflow.WithLabelValues(bounded(dimension, "service", "region", "account")).Add(float64(count))
+		exporter.overflow.WithLabelValues(string(target), bounded(dimension, "service", "region", "account")).Add(float64(count))
 	}
 }
 
-// ObservePaginationPage records one successfully read Cost Explorer page.
-func (exporter *Exporter) ObservePaginationPage(operation string) {
-	exporter.pagination.WithLabelValues(bounded(operation, "GetCostAndUsage", "GetCostForecast")).Inc()
+func (exporter *Exporter) ObservePaginationPage(target identity.TargetID, operation string) {
+	exporter.pagination.WithLabelValues(string(target), boundedOperation(operation)).Inc()
 }
 
-// ObserveCachePublishError records a cache publish or failure-record error.
-func (exporter *Exporter) ObserveCachePublishError(collector, operation string) {
-	if !exporter.isKnown(collector) {
-		return
+func (exporter *Exporter) ObserveCachePublishError(id identity.CollectorID, operation string) {
+	if exporter.isKnown(id) {
+		exporter.cachePublishErrors.WithLabelValues(string(id.Target), id.Name, bounded(operation, "publish", "record_failure")).Inc()
 	}
-	exporter.cachePublishErrors.WithLabelValues(collector, bounded(operation, "publish", "record_failure")).Inc()
 }
 
-// ObserveSchedulerShutdownTimeout records one scheduler shutdown timeout.
-func (exporter *Exporter) ObserveSchedulerShutdownTimeout() {
-	exporter.shutdownTimeouts.Inc()
+func (exporter *Exporter) ObserveSchedulerShutdownTimeout() { exporter.shutdownTimeouts.Inc() }
+func (exporter *Exporter) isKnown(id identity.CollectorID) bool {
+	_, exists := exporter.known[id]
+	return exists
 }
-
-func (exporter *Exporter) isKnown(name string) bool { _, exists := exporter.known[name]; return exists }
+func boundedOperation(value string) string {
+	return bounded(value, "AssumeRole", "GetCostAndUsage", "GetCostForecast", "ListAccounts", "DescribeOrganization", "DescribeBudgets")
+}
 func bounded(value string, allowed ...string) string {
 	return boundedDefault(value, "unknown", allowed...)
 }

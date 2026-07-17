@@ -43,12 +43,12 @@ func TestPaginationPublishesEveryServicePage(t *testing.T) {
 			"KEY": key, "AMOUNT": amount, "NEXT": next,
 		})
 	}, func(value *config.Config) {
-		value.CostExplorer.Collectors.Service = true
+		value.Collection.CostExplorer.Collectors.Service = true
 	})
 	body := awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
 		return code == http.StatusOK &&
-			strings.Contains(body, "aws_cost_service_daily_amount{aws_service=\"AmazonEC2\",currency=\"USD\"} 1\n") &&
-			strings.Contains(body, "aws_cost_service_daily_amount{aws_service=\"AmazonS3\",currency=\"USD\"} 2\n")
+			strings.Contains(body, "aws_cost_service_daily_amount{aws_service=\"AmazonEC2\",currency=\"USD\",target=\"integration\"} 1\n") &&
+			strings.Contains(body, "aws_cost_service_daily_amount{aws_service=\"AmazonS3\",currency=\"USD\",target=\"integration\"} 2\n")
 	})
 	if calls.Load() != 4 || !strings.Contains(body, "aws_cost_service_month_to_date_amount") {
 		t.Fatalf("pagination calls=%d metrics=%s", calls.Load(), body)
@@ -69,12 +69,12 @@ func TestThrottleRetriesThenPublishes(t *testing.T) {
 			"START": input.TimePeriod.Start, "END": input.TimePeriod.End, "AMOUNT": "7",
 		})
 	}, func(value *config.Config) {
-		value.CostExplorer.Collectors.Total = true
+		value.Collection.CostExplorer.Collectors.Total = true
 	})
 	body := awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
 		return code == http.StatusOK &&
-			strings.Contains(body, "aws_cost_daily_amount{currency=\"USD\"} 7\n") &&
-			strings.Contains(body, "aws_cost_exporter_aws_api_retries_total{operation=\"GetCostAndUsage\",reason=\"throttle\"} 1\n")
+			strings.Contains(body, "aws_cost_daily_amount{currency=\"USD\",target=\"integration\"} 7\n") &&
+			strings.Contains(body, "aws_cost_exporter_aws_api_retries_total{operation=\"GetCostAndUsage\",reason=\"throttle\",target=\"integration\"} 1\n")
 	})
 	if calls.Load() != 3 {
 		t.Fatalf("throttle calls=%d metrics=%s", calls.Load(), body)
@@ -82,27 +82,28 @@ func TestThrottleRetriesThenPublishes(t *testing.T) {
 }
 
 func TestGlobalFiltersInjectedIntoRequests(t *testing.T) {
-	var capturedBody string
+	var capturedBody atomic.Value
 	baseURL := runExporter(t, func(writer http.ResponseWriter, request *http.Request) {
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
 			t.Errorf("read request body: %v", err)
 		}
-		capturedBody = string(body)
+		capturedBody.Store(string(body))
 		input := decodeRequestBody(t, body)
 		writeFixture(t, writer, "total.json", map[string]string{
 			"START": input.TimePeriod.Start, "END": input.TimePeriod.End, "AMOUNT": "3",
 		})
 	}, func(value *config.Config) {
-		value.CostExplorer.Collectors.Total = true
-		value.CostExplorer.Filters.Services = []string{"Amazon EC2"}
-		value.CostExplorer.Filters.Regions = []string{"us-east-1"}
+		value.Collection.CostExplorer.Collectors.Total = true
+		value.Targets[0].CostExplorer.Filters.Services = []string{"Amazon EC2"}
+		value.Targets[0].CostExplorer.Filters.Regions = []string{"us-east-1"}
 	})
 	awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
-		return code == http.StatusOK && strings.Contains(body, "aws_cost_daily_amount{currency=\"USD\"} 3\n")
+		return code == http.StatusOK && strings.Contains(body, "aws_cost_daily_amount{currency=\"USD\",target=\"integration\"} 3\n")
 	})
-	if !strings.Contains(capturedBody, "Amazon EC2") || !strings.Contains(capturedBody, "us-east-1") {
-		t.Fatalf("request missing global filters: %s", capturedBody)
+	got, _ := capturedBody.Load().(string)
+	if !strings.Contains(got, "Amazon EC2") || !strings.Contains(got, "us-east-1") {
+		t.Fatalf("request missing target filters: %s", got)
 	}
 }
 
@@ -119,15 +120,15 @@ func TestPartialCollectorFailureKeepsSuccessfulSnapshot(t *testing.T) {
 			"START": input.TimePeriod.Start, "END": input.TimePeriod.End, "AMOUNT": "9",
 		})
 	}, func(value *config.Config) {
-		value.CostExplorer.Collectors.Total = true
-		value.CostExplorer.Collectors.Service = true
+		value.Collection.CostExplorer.Collectors.Total = true
+		value.Collection.CostExplorer.Collectors.Service = true
 	})
 	body := awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
 		return code == http.StatusOK &&
-			strings.Contains(body, "aws_cost_daily_amount{currency=\"USD\"} 9\n") &&
-			strings.Contains(body, "aws_cost_exporter_collector_up{collector=\"service\"} 0\n") &&
-			strings.Contains(body, "aws_cost_exporter_collector_up{collector=\"total\"} 1\n") &&
-			strings.Contains(body, "aws_cost_exporter_refresh_total{collector=\"service\",status=\"error\"} 1\n")
+			strings.Contains(body, "aws_cost_daily_amount{currency=\"USD\",target=\"integration\"} 9\n") &&
+			strings.Contains(body, "aws_cost_exporter_collector_up{collector=\"service\",target=\"integration\"} 0\n") &&
+			strings.Contains(body, "aws_cost_exporter_collector_up{collector=\"total\",target=\"integration\"} 1\n") &&
+			strings.Contains(body, "aws_cost_exporter_refresh_total{collector=\"service\",status=\"error\",target=\"integration\"} 1\n")
 	})
 	awaitHTTP(t, baseURL+"/ready", func(code int, _ string) bool {
 		return code == http.StatusServiceUnavailable
@@ -149,13 +150,13 @@ func TestMaxPagesExceededMarksCollectorDown(t *testing.T) {
 			"KEY": "AmazonEC2", "AMOUNT": "1", "NEXT": next,
 		})
 	}, func(value *config.Config) {
-		value.CostExplorer.Collectors.Service = true
-		value.CostExplorer.MaxPages = 1
+		value.Collection.CostExplorer.Collectors.Service = true
+		value.Collection.CostExplorer.MaxPages = 1
 	})
 	body := awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
 		return code == http.StatusOK &&
-			strings.Contains(body, "aws_cost_exporter_collector_up{collector=\"service\"} 0\n") &&
-			strings.Contains(body, "aws_cost_exporter_refresh_total{collector=\"service\",status=\"error\"} 1\n")
+			strings.Contains(body, "aws_cost_exporter_collector_up{collector=\"service\",target=\"integration\"} 0\n") &&
+			strings.Contains(body, "aws_cost_exporter_refresh_total{collector=\"service\",status=\"error\",target=\"integration\"} 1\n")
 	})
 	if strings.Contains(body, "aws_cost_service_daily_amount{") {
 		t.Fatalf("failed pagination published metrics: %s", body)
@@ -178,13 +179,14 @@ func runExporter(t *testing.T, handler http.HandlerFunc, enable func(*config.Con
 		t.Fatalf("release address: %v", err)
 	}
 	value := config.Default()
+	value.Targets = []config.TargetConfig{{Name: "integration", AccountID: "444455556666", Required: true, CostExplorer: config.TargetCostExplorerConfig{Enabled: true}}}
 	value.Server.ListenAddress, value.Server.ShutdownTimeout = address, time.Second
-	value.AWS.EndpointURL, value.AWS.RequestTimeout = fakeAWS.URL, time.Second
+	value.AWS.Endpoints.CostExplorer, value.AWS.RequestTimeout = fakeAWS.URL, time.Second
 	value.AWS.Retry.MaxAttempts, value.AWS.Retry.BaseDelay, value.AWS.Retry.MaxBackoff = 3, time.Millisecond, 5*time.Millisecond
-	value.AWS.RateLimit.RequestsPerSecond, value.AWS.RateLimit.Burst = 1000, 10
-	value.CostExplorer.StartupRefresh, value.CostExplorer.JitterRatio = true, 0
-	value.CostExplorer.Collectors = config.CollectorsConfig{}
-	value.CostExplorer.Forecast.Enabled = false
+	value.AWS.RateLimit.GlobalRequestsPerSecond, value.AWS.RateLimit.GlobalBurst = 10, 5
+	value.AWS.RateLimit.TargetRequestsPerSecond, value.AWS.RateLimit.TargetBurst = 10, 5
+	value.Collection.StartupRefresh, value.Collection.JitterRatio = true, 0
+	value.Collection.CostExplorer.Collectors = config.CollectorsConfig{}
 	value.Telemetry.IncludeGoCollector, value.Telemetry.IncludeProcessCollector = false, false
 	enable(&value)
 	ctx, cancel := context.WithCancel(context.Background())

@@ -39,9 +39,6 @@ func execute(ctx context.Context, args []string, output, errorOutput io.Writer, 
 			if err != nil {
 				return err
 			}
-			if len(enabledCollectors(value)) == 0 {
-				return fmt.Errorf("cost_explorer: no collectors enabled")
-			}
 			logger, err := logging.New(value.Log, errorOutput)
 			if err != nil {
 				return err

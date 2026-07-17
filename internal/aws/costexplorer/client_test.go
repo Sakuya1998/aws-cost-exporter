@@ -79,14 +79,14 @@ func TestNewAppliesExplicitEndpoint(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
 
 	value := config.Default().AWS
-	value.EndpointURL = "https://cost.example.test"
+	value.Endpoints.CostExplorer = "https://cost.example.test"
 	client, err := New(context.Background(), value)
 	if err != nil {
 		t.Fatalf("New() returned an unexpected error: %v", err)
 	}
 
 	options := client.Options()
-	if options.BaseEndpoint == nil || *options.BaseEndpoint != value.EndpointURL {
-		t.Fatalf("BaseEndpoint = %v, want %q", options.BaseEndpoint, value.EndpointURL)
+	if options.BaseEndpoint == nil || *options.BaseEndpoint != value.Endpoints.CostExplorer {
+		t.Fatalf("BaseEndpoint = %v, want %q", options.BaseEndpoint, value.Endpoints.CostExplorer)
 	}
 }

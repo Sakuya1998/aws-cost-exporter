@@ -87,7 +87,7 @@ func TestSmokeConfigDisablesAWSStartupDependencies(t *testing.T) {
 	if value.AWS.Profile != "" {
 		t.Fatalf("smoke AWS profile = %q, want empty", value.AWS.Profile)
 	}
-	if value.CostExplorer.StartupRefresh {
+	if value.Collection.StartupRefresh {
 		t.Fatal("smoke config must disable startup refresh")
 	}
 }
