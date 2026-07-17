@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	appconfig "github.com/sakuya1998/aws-cost-exporter/internal/config"
 )
 
 func TestContainerAssetsEnforceSecurityContract(t *testing.T) {
@@ -73,6 +75,23 @@ func TestMultiArchitectureBuild(t *testing.T) {
 		"--output", "type=oci,dest="+archive, ".")
 }
 
+func TestSmokeConfigDisablesAWSStartupDependencies(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	value, err := appconfig.Load(appconfig.Options{Path: writeSmokeConfig(t, root)})
+	if err != nil {
+		t.Fatalf("load smoke config: %v", err)
+	}
+	if value.AWS.Profile != "" {
+		t.Fatalf("smoke AWS profile = %q, want empty", value.AWS.Profile)
+	}
+	if value.CostExplorer.StartupRefresh {
+		t.Fatal("smoke config must disable startup refresh")
+	}
+}
+
 func TestContainerSmoke(t *testing.T) {
 	docker, err := exec.LookPath("docker")
 	if err != nil {
@@ -86,7 +105,7 @@ func TestContainerSmoke(t *testing.T) {
 	run(t, root, docker, "build", "--build-arg", "VERSION=e2e", "--build-arg",
 		"REVISION=test", "--build-arg", "BUILD_DATE=2026-07-13T00:00:00Z", "-t", image, ".")
 	t.Cleanup(func() { _ = exec.Command(docker, "image", "rm", "-f", image).Run() })
-	configPath := filepath.Join(root, "configs", "aws-cost-exporter.example.yaml")
+	configPath := writeSmokeConfig(t, root)
 	hostPort := freeTCPPort(t)
 	container := strings.TrimSpace(run(t, root, docker, "run", "-d", "--read-only",
 		"--user", "65532:65532", "--security-opt", "no-new-privileges:true",
@@ -97,11 +116,33 @@ func TestContainerSmoke(t *testing.T) {
 	if user := strings.TrimSpace(run(t, root, docker, "inspect", "--format", "{{.Config.User}}", container)); user != "65532:65532" {
 		t.Fatalf("container user = %q", user)
 	}
-	awaitHealth(t, fmt.Sprintf("http://127.0.0.1:%d/healthz", hostPort))
+	awaitHealth(t, root, docker, container, fmt.Sprintf("http://127.0.0.1:%d/healthz", hostPort))
 	run(t, root, docker, "rm", "-f", container)
 	if err := exec.Command(docker, "run", "--rm", "--entrypoint", "/bin/sh", image).Run(); err == nil {
 		t.Fatal("distroless image unexpectedly contains /bin/sh")
 	}
+}
+
+func writeSmokeConfig(t *testing.T, root string) string {
+	t.Helper()
+	content := read(t, filepath.Join(root, "configs", "aws-cost-exporter.example.yaml"))
+	for _, replacement := range []struct {
+		old string
+		new string
+	}{
+		{`profile: "default"`, `profile: ""`},
+		{"startup_refresh: true", "startup_refresh: false"},
+	} {
+		if !strings.Contains(content, replacement.old) {
+			t.Fatalf("example config lacks %q", replacement.old)
+		}
+		content = strings.Replace(content, replacement.old, replacement.new, 1)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write smoke config: %v", err)
+	}
+	return path
 }
 
 func freeTCPPort(t *testing.T) int {
@@ -137,7 +178,7 @@ func run(t *testing.T, directory, command string, arguments ...string) string {
 	return string(output)
 }
 
-func awaitHealth(t *testing.T, url string) {
+func awaitHealth(t *testing.T, directory, docker, container, url string) {
 	t.Helper()
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	deadline := time.Now().Add(15 * time.Second)
@@ -152,5 +193,17 @@ func awaitHealth(t *testing.T, url string) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("%s did not become healthy", url)
+	state := diagnosticOutput(directory, docker, "inspect", "--format", "{{json .State}}", container)
+	logs := diagnosticOutput(directory, docker, "logs", container)
+	t.Fatalf("%s did not become healthy\ncontainer state: %s\ncontainer logs:\n%s", url, state, logs)
+}
+
+func diagnosticOutput(directory, command string, arguments ...string) string {
+	process := exec.Command(command, arguments...)
+	process.Dir = directory
+	output, err := process.CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("%s %v: %v: %s", command, arguments, err, output)
+	}
+	return strings.TrimSpace(string(output))
 }
