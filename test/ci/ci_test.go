@@ -24,13 +24,17 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 		"./test/integration/...", "./test/e2e/...", "./test/perf/...",
 		"./test/chart/...", "./test/dashboard/...", "./test/rules/...",
 		"./test/docs/...", "./test/release/...",
-		"promtool", "kubeconform", "version: v3.21.3", "./test/container/...",
+		"prometheus_version=2.55.1", "sha256sum --check --strict", "promtool",
+		"kubeconform", "version: v3.21.3", "./test/container/...",
 	} {
 		if !strings.Contains(content, fragment) {
 			t.Errorf("CI workflow lacks %q", fragment)
 		}
 	}
-	for _, forbidden := range []string{"contents: write", "packages: write", "id-token: write"} {
+	for _, forbidden := range []string{
+		"contents: write", "packages: write", "id-token: write",
+		"go install github.com/prometheus/prometheus/cmd/promtool@",
+	} {
 		if strings.Contains(content, forbidden) {
 			t.Errorf("PR workflow grants forbidden permission %q", forbidden)
 		}

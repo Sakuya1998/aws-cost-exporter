@@ -22,7 +22,7 @@ func newSystemTimer(delay time.Duration) Timer {
 func NewSystemTimer(delay time.Duration) Timer { return newSystemTimer(delay) }
 
 func (timer *systemTimer) Chan() <-chan time.Time { return timer.timer.C }
-func (timer *systemTimer) Stop() bool           { return timer.timer.Stop() }
+func (timer *systemTimer) Stop() bool             { return timer.timer.Stop() }
 func (timer *systemTimer) Reset(delay time.Duration) bool {
 	return timer.timer.Reset(delay)
 }

@@ -88,7 +88,18 @@ jobs:
       - name: Install validators
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
-          go install github.com/prometheus/prometheus/cmd/promtool@v0.55.1
+          prometheus_version=2.55.1
+          archive="prometheus-${prometheus_version}.linux-amd64.tar.gz"
+          archive_path="$RUNNER_TEMP/$archive"
+          curl -fsSL --retry 3 \
+            "https://github.com/prometheus/prometheus/releases/download/v${prometheus_version}/${archive}" \
+            --output "$archive_path"
+          echo "19700bdd42ec31ee162e4079ebda4cd0a44432df4daa637141bdbea4b1cd8927  $archive_path" \
+            | sha256sum --check --strict
+          tar -xzf "$archive_path" -C "$RUNNER_TEMP"
+          install -m 0755 \
+            "$RUNNER_TEMP/prometheus-${prometheus_version}.linux-amd64/promtool" \
+            "$(go env GOPATH)/bin/promtool"
           kubeconform -v
           promtool --version
       - name: Validate delivery assets

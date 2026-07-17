@@ -3,6 +3,7 @@ package container_test
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -86,21 +87,34 @@ func TestContainerSmoke(t *testing.T) {
 		"REVISION=test", "--build-arg", "BUILD_DATE=2026-07-13T00:00:00Z", "-t", image, ".")
 	t.Cleanup(func() { _ = exec.Command(docker, "image", "rm", "-f", image).Run() })
 	configPath := filepath.Join(root, "configs", "aws-cost-exporter.example.yaml")
+	hostPort := freeTCPPort(t)
 	container := strings.TrimSpace(run(t, root, docker, "run", "-d", "--read-only",
 		"--user", "65532:65532", "--security-opt", "no-new-privileges:true",
 		"--cap-drop", "ALL", "-e", "AWS_EC2_METADATA_DISABLED=true",
 		"--mount", "type=bind,src="+configPath+",dst=/etc/aws-cost-exporter/config.yaml,readonly",
-		"-p", "127.0.0.1::8080", image))
+		"-p", fmt.Sprintf("127.0.0.1:%d:8080", hostPort), image))
 	t.Cleanup(func() { _ = exec.Command(docker, "rm", "-f", container).Run() })
 	if user := strings.TrimSpace(run(t, root, docker, "inspect", "--format", "{{.Config.User}}", container)); user != "65532:65532" {
 		t.Fatalf("container user = %q", user)
 	}
-	port := strings.TrimSpace(run(t, root, docker, "port", container, "8080/tcp"))
-	awaitHealth(t, "http://"+port+"/healthz")
+	awaitHealth(t, fmt.Sprintf("http://127.0.0.1:%d/healthz", hostPort))
 	run(t, root, docker, "rm", "-f", container)
 	if err := exec.Command(docker, "run", "--rm", "--entrypoint", "/bin/sh", image).Run(); err == nil {
 		t.Fatal("distroless image unexpectedly contains /bin/sh")
 	}
+}
+
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("allocate host port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release host port: %v", err)
+	}
+	return port
 }
 
 func read(t *testing.T, path string) string {

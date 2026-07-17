@@ -103,19 +103,32 @@ func TestRunServicesInvokesShutdownTimeoutCallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	called := false
+	called := make(chan struct{}, 1)
+	done := make(chan error, 1)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	go func() {
-		_ = app.RunServices(context.Background(), blockingScheduler{}, server, listener, value.Server.ShutdownTimeout, logger, func() {
-			called = true
+		done <- app.RunServices(context.Background(), blockingScheduler{}, server, listener, value.Server.ShutdownTimeout, logger, func() {
+			select {
+			case called <- struct{}{}:
+			default:
+			}
 		})
 	}()
 	time.Sleep(30 * time.Millisecond)
 	if err := listener.Close(); err != nil {
 		t.Fatalf("close listener: %v", err)
 	}
-	time.Sleep(30 * time.Millisecond)
-	if !called {
+	select {
+	case <-called:
+	case <-time.After(time.Second):
 		t.Fatal("shutdown timeout callback was not invoked")
+	}
+	select {
+	case err := <-done:
+		if err != nil && !strings.Contains(err.Error(), "closed network connection") {
+			t.Fatalf("RunServices() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunServices did not return before test timeout")
 	}
 }
