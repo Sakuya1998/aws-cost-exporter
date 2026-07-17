@@ -98,7 +98,7 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 func TestV01ChecklistCoversReleaseGates(t *testing.T) {
 	content := read(t, filepath.Join("..", "..", "docs", "releases", "v0.1-checklist.md"))
 	for _, fragment := range []string{
-		"# v0.1.0 release checklist", "./test/perf/...", "./test/release/...",
+		"# v0.1 release checklist", "./test/perf/...", "./test/release/...",
 		"race", "does not call AWS", "8 `GetCostAndUsage` + 1 `GetCostForecast`",
 		"perf API-budget gate (8+1) does not apply", "pagination_pages_total",
 		"series_limit=1000", "15s", "cosign verify", "Trivy", "ROADMAP.md", "arm64",
@@ -106,6 +106,9 @@ func TestV01ChecklistCoversReleaseGates(t *testing.T) {
 		if !strings.Contains(content, fragment) {
 			t.Errorf("v0.1 checklist lacks %q", fragment)
 		}
+	}
+	if strings.Contains(content, "- [ ]") {
+		t.Error("v0.1 checklist still contains incomplete release gates")
 	}
 }
 
@@ -117,18 +120,18 @@ func TestV01ChecklistReferencesAutomatedSuites(t *testing.T) {
 	}
 }
 
-func TestV014VerificationRecordPinsArtifactsAndIdentity(t *testing.T) {
-	content := read(t, filepath.Join("..", "..", "docs", "releases", "v0.1.4-verification.md"))
+func TestV015VerificationRecordPinsArtifactsAndIdentity(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", "docs", "releases", "v0.1.5-verification.md"))
 	for _, fragment := range []string{
 		"cosign v3.1.1",
-		"release.yml@refs/tags/v0.1.4",
+		"release.yml@refs/tags/v0.1.5",
 		"https://token.actions.githubusercontent.com",
-		"sha256:84c9004e6d8f0aaefa8de3e64171b623ff89b3ff70006cdda470d77a5d335e60",
-		"sha256:664425f6a5eeda58870d25db83c08b0af351c8ef0b825b412ca2ecee74f9d8e0",
+		"sha256:2fd9bdc7e673e34ae0363aeb01c9fc282ff06f99edb88c0fc318840dfbd2734c",
+		"sha256:1c1754b1cb0ad31430b2d420c8a3ae33c3481146d2ddfe41e15e20788bf915fc",
 		"transparency log",
 	} {
 		if !strings.Contains(content, fragment) {
-			t.Errorf("v0.1.4 verification record lacks %q", fragment)
+			t.Errorf("v0.1.5 verification record lacks %q", fragment)
 		}
 	}
 }

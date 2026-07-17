@@ -7,10 +7,11 @@ maintainer capacity. Each release must preserve the exporter model described in
 
 ## v0.1: Cost Explorer exporter
 
-Status: feature-complete in v0.1.4. The v0.1.4 container image and Helm OCI
-chart signatures were independently verified on 2026-07-16; see the
-[verification record](docs/releases/v0.1.4-verification.md). Remaining manual
-and environment-specific release sign-off is tracked in the
+Status: completed in v0.1.5. The automated exit criteria are green, the v0.1.5
+container image and Helm OCI chart signatures were independently verified, and
+the maintainer confirmed the real-account least-privilege IAM and arm64 runtime
+checks on 2026-07-17. See the
+[verification record](docs/releases/v0.1.5-verification.md) and
 [v0.1 release checklist](docs/releases/v0.1-checklist.md).
 
 Goal: deliver a reliable single-credential Cost Explorer exporter.
