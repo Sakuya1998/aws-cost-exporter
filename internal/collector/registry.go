@@ -53,7 +53,7 @@ func (registry *Registry) Build(names []string) ([]Collector, error) {
 		if err != nil {
 			return nil, fmt.Errorf("construct collector %s: %w", name, err)
 		}
-		if instance == nil || instance.Name() != name {
+		if instance == nil || !instance.ID().Valid() || instance.ID().Name != name {
 			return nil, fmt.Errorf("%w: factory %s returned mismatched collector", ErrInvalidRegistration, name)
 		}
 		built = append(built, instance)

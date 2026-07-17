@@ -42,7 +42,7 @@ func TestForecastAdapterReadsRealSDKEndpoint(t *testing.T) {
 	defer server.Close()
 
 	value := config.Default().AWS
-	value.EndpointURL, value.RequestTimeout, value.Retry.MaxAttempts = server.URL, time.Second, 1
+	value.Endpoints.CostExplorer, value.RequestTimeout, value.Retry.MaxAttempts = server.URL, time.Second, 1
 	client, _ := New(context.Background(), value)
 	period, _ := cost.NewPeriod(time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
 	adapter, _ := NewForecastAdapter(client)

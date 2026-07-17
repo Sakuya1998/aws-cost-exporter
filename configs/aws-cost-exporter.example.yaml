@@ -1,5 +1,5 @@
-# This minimal runnable configuration shows process and AWS client settings.
-# Omitted fields use safe defaults documented in README.md.
+# v0.2 uses one explicit target schema. Replace account_id with the account
+# represented by the default credential chain before starting the exporter.
 server:
   listen_address: ":8080"
   metrics_path: "/metrics"
@@ -19,51 +19,93 @@ log:
 
 aws:
   region: us-east-1
-  profile: "default"
-  endpoint_url: ""
+  credentials:
+    sources:
+      runtime:
+        type: default_chain
+      # workstation-account:
+      #   type: profile
+      #   profile: account-a
+      # legacy-account:
+      #   type: static_env
+      #   access_key_id_env: LEGACY_AWS_ACCESS_KEY_ID
+      #   secret_access_key_env: LEGACY_AWS_SECRET_ACCESS_KEY
+      #   session_token_env: LEGACY_AWS_SESSION_TOKEN
   request_timeout: 30s
+  endpoints:
+    sts: ""
+    cost_explorer: ""
+    organizations: ""
+    budgets: ""
   retry:
     max_attempts: 5
     base_delay: 1s
     max_backoff: 30s
   rate_limit:
-    requests_per_second: 0.5
-    burst: 1
+    global_requests_per_second: 1
+    global_burst: 2
+    target_requests_per_second: 0.5
+    target_burst: 1
 
-cost_explorer:
-  enabled: true
-  cost_metric: UnblendedCost
-  max_pages: 50
+targets:
+  - name: payer-prod
+    account_id: "444455556666"
+    required: true
+    credentials:
+      source: runtime
+      # For assumed targets, ExternalId is read exclusively from the named env var.
+      # assume_role:
+      #   role_arn: arn:aws:iam::444455556666:role/aws-cost-exporter-reader
+      #   external_id_env: AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID
+      #   session_name: aws-cost-exporter-payer-prod
+    cost_explorer:
+      enabled: true
+      filters:
+        linked_account_ids: []
+        services: []
+        regions: []
+    organizations:
+      enabled: false
+      account_ids: []
+    budgets:
+      enabled: false
+      names: []
+
+collection:
   refresh_interval: 6h
   startup_refresh: true
   jitter_ratio: 0.10
-  forecast:
-    enabled: true
-    prediction_interval: 80
-  collectors:
-    total: true
-    service: true
-    region: true
-    account: true
-  dimensions:
-    series_limit: 1000
-    overflow: aggregate
-    overflow_label: __other__
-  filters:
-    linked_account_ids: []
-    services: []
-    regions: []
-
-cache:
-  freshness_ttl: 12h
-  stale_after: 24h
-
-scheduler:
-  max_concurrency: 2
+  max_concurrency: 4
   failure_backoff:
     initial: 1m
     max: 30m
     multiplier: 2
+  cost_explorer:
+    cost_metric: UnblendedCost
+    max_pages: 50
+    prediction_interval: 80
+    collectors:
+      total: true
+      service: true
+      region: true
+      account: true
+      forecast: true
+    dimensions:
+      series_limit: 1000
+      overflow: aggregate
+      overflow_label: __other__
+  organizations:
+    refresh_interval: 24h
+    max_pages: 20
+    series_limit: 1000
+  budgets:
+    refresh_interval: 6h
+    max_pages: 20
+    series_limit: 100
+
+cache:
+  freshness_ttl: 12h
+  stale_after: 24h
 
 telemetry:
   include_go_collector: true

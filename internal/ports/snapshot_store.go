@@ -3,7 +3,8 @@ package ports
 import (
 	"time"
 
-	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 )
 
 // Freshness is the bounded age category of a collector's last success.
@@ -27,14 +28,14 @@ type CollectorStatus struct {
 
 // SnapshotView is one isolated read of cache data and collector statuses.
 type SnapshotView struct {
-	Snapshot   cost.Snapshot
-	Collectors map[string]CollectorStatus
+	Snapshot   snapshot.Snapshot
+	Collectors map[identity.CollectorID]CollectorStatus
 }
 
 // SnapshotStore publishes collector results without exposing storage details.
 type SnapshotStore interface {
-	Publish(collector string, snapshot cost.PartialSnapshot) error
-	RecordFailure(collector string) error
-	Snapshot() cost.Snapshot
+	Publish(identity.CollectorID, snapshot.PartialSnapshot) error
+	RecordFailure(identity.CollectorID) error
+	Snapshot() snapshot.Snapshot
 	Load() SnapshotView
 }

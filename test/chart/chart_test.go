@@ -36,6 +36,7 @@ func TestChartAssetsContainRuntimeContracts(t *testing.T) {
 		"readOnlyRootFilesystem: true", "allowPrivilegeEscalation: false",
 		"path: /healthz", "path: /ready",
 		"serviceMonitor:", "prometheusRule:", "networkPolicy:", "podDisruptionBudget:",
+		"secretEnvRefs:", "awsSharedConfig:",
 	} {
 		if !strings.Contains(values, required) {
 			t.Errorf("values.yaml missing %q", required)
@@ -105,6 +106,16 @@ func TestFullTemplatePassesKubeconform(t *testing.T) {
 	if !strings.Contains(rendered, "debug:\n        enabled: false") ||
 		strings.Contains(rendered, "path: /debug") {
 		t.Error("full chart exposed debug configuration")
+	}
+	for _, secretFragment := range []string{"AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID", "aws-cost-exporter-external-ids", "payer-prod"} {
+		if !strings.Contains(rendered, secretFragment) {
+			t.Errorf("full chart missing ExternalId Secret reference %q", secretFragment)
+		}
+	}
+	for _, profileFragment := range []string{"AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE", "aws-cost-exporter-shared-config", `mountPath: "/var/run/aws"`} {
+		if !strings.Contains(rendered, profileFragment) {
+			t.Errorf("full chart missing shared profile reference %q", profileFragment)
+		}
 	}
 	manifest := filepath.Join(t.TempDir(), "manifest.yaml")
 	if err := os.WriteFile(manifest, []byte(rendered), 0o600); err != nil {

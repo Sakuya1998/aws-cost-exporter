@@ -43,16 +43,16 @@ func TestRulesContainSafeRecordingsAndAlerts(t *testing.T) {
 		}
 	}
 	requireExpr(t, records, "aws_cost:month_to_date:sum_by_currency",
-		"sum by (job, instance, currency) (aws_cost_month_to_date_amount)")
+		"sum by (job, instance, target, currency) (aws_cost_month_to_date_amount)")
 	requireExpr(t, records, "aws_cost_exporter:max_cache_age_seconds",
-		"max by (job, instance) (aws_cost_exporter_cache_age_seconds)")
+		"max by (job, instance, target) (aws_cost_exporter_cache_age_seconds)")
 	requireAlert(t, alerts, "AWSCostExporterDataStale", "30m", "aws_cost_exporter:max_cache_age_seconds > 43200")
 	requireAlert(t, alerts, "AWSCostExporterCollectorDown", "30m",
 		"aws_cost_exporter_collector_up == 0")
 	requireAlert(t, alerts, "AWSCostExplorerPaginationSpike", "15m",
-		`sum by (job, instance) (increase(aws_cost_exporter_pagination_pages_total[1h])) > 100`)
+		`sum by (job, instance, target) (increase(aws_cost_exporter_pagination_pages_total[1h])) > 100`)
 	requireAlert(t, alerts, "AWSCostExplorerThrottleSustained", "15m",
-		`sum by (job, instance) (rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])) > 0`)
+		`sum by (job, instance, target) (rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])) > 0`)
 	requireAlert(t, alerts, "AWSDailyCostSpike", "2h",
 		"aws_cost_daily_amount > 1.5 * avg_over_time(aws_cost_daily_amount[7d])")
 	if _, enabled := alerts["AWSMonthlyCostForecastAboveBudget"]; enabled {
@@ -149,7 +149,7 @@ func productionMetrics(t *testing.T) map[string]struct{} {
 	sources := []struct {
 		path, prefix, pattern string
 	}{
-		{"cost.go", "aws_cost_", `newDesc\("([^"]+)"`},
+		{"cost.go", "aws_cost_", `costDesc\("([^"]+)"`},
 		{"exporter.go", "aws_cost_exporter_", `(?:selfDesc|counter|histogram)\("([^"]+)"`},
 	}
 	for _, source := range sources {

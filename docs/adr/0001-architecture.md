@@ -36,6 +36,14 @@ project will not use package initialization side effects or Go runtime plugins.
 Manual constructor injection will be used instead of a dependency injection
 framework.
 
+AWS identities are composed from named credential sources. Each unique default
+chain, shared Profile, or environment-backed source is loaded once; targets
+explicitly select a source and may add an isolated AssumeRole credentials
+cache. A target-scoped STS identity verifier prevents credentials for one AWS
+account from publishing data under another target. Credential-source and
+identity failures stay behind the same target collector boundary as billing API
+failures.
+
 ## Consequences
 
 - Scrape latency and reliability are independent of AWS API latency.

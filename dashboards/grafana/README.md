@@ -9,11 +9,11 @@ Time series, Bar gauge, Table, and Text panels. It has no plugin dependency.
 Validation covers:
 
 - valid JSON and stable dashboard metadata;
-- all required variables with `All` support;
+- all required variables, including `target`, with `All` support;
 - all required cost and exporter-health panels;
 - PromQL metric names against the exporter contract;
-- `job`, `instance`, and `currency` filters on every business query;
-- currency-preserving aggregation;
+- `job`, `instance`, `target`, and currency filters on monetary queries;
+- target- and currency-preserving aggregation;
 - counter-safe dimension-overflow queries.
 
 For a release screenshot, use the UTC timezone and capture the complete

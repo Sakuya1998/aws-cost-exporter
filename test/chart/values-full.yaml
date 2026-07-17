@@ -9,7 +9,13 @@ networkPolicy:
 podDisruptionBudget:
   enabled: true
 config:
+  secretEnvRefs:
+    - envName: AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID
+      secretName: aws-cost-exporter-external-ids
+      secretKey: payer-prod
   data:
     server:
       debug:
         enabled: false
+awsSharedConfig:
+  existingSecret: aws-cost-exporter-shared-config

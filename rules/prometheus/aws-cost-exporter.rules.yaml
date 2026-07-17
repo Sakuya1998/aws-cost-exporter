@@ -2,10 +2,10 @@ groups:
   - name: aws-cost-exporter.recording
     rules:
       - record: aws_cost:month_to_date:sum_by_currency
-        expr: sum by (job, instance, currency) (aws_cost_month_to_date_amount)
+        expr: sum by (job, instance, target, currency) (aws_cost_month_to_date_amount)
 
       - record: aws_cost_exporter:max_cache_age_seconds
-        expr: max by (job, instance) (aws_cost_exporter_cache_age_seconds)
+        expr: max by (job, instance, target) (aws_cost_exporter_cache_age_seconds)
 
   - name: aws-cost-exporter.alerts
     rules:
@@ -24,12 +24,12 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: AWS Cost Exporter collector {{ $labels.collector }} is down
-          description: Collector {{ $labels.collector }} on {{ $labels.instance }} has been down continuously for 30 minutes.
+          summary: AWS Cost Exporter collector {{ $labels.target }}/{{ $labels.collector }} is down
+          description: Collector {{ $labels.collector }} for target {{ $labels.target }} on {{ $labels.instance }} has been down continuously for 30 minutes.
 
       # Tune the threshold for large accounts with heavy pagination.
       - alert: AWSCostExplorerPaginationSpike
-        expr: sum by (job, instance) (increase(aws_cost_exporter_pagination_pages_total[1h])) > 100
+        expr: sum by (job, instance, target) (increase(aws_cost_exporter_pagination_pages_total[1h])) > 100
         for: 15m
         labels:
           severity: warning
@@ -38,7 +38,7 @@ groups:
           description: Pagination page reads on {{ $labels.instance }} exceed the deployment threshold. Review filters, max_pages, and account size.
 
       - alert: AWSCostExplorerThrottleSustained
-        expr: sum by (job, instance) (rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])) > 0
+        expr: sum by (job, instance, target) (rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])) > 0
         for: 15m
         labels:
           severity: warning
@@ -52,7 +52,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: Daily AWS cost spike for {{ $labels.currency }}
+          summary: Daily AWS cost spike for {{ $labels.target }} in {{ $labels.currency }}
           description: Current UTC billing-day cost exceeds 1.5 times its seven-day scrape-history average. Cost Explorer backfill can cause false positives.
 
       # Budget alert example only; intentionally disabled by default.

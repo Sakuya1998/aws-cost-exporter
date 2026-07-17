@@ -4,20 +4,20 @@ package costexplorer
 import (
 	"context"
 	"fmt"
-	rand "math/rand/v2"
+	"os"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	awscostexplorer "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 
+	awscommon "github.com/sakuya1998/aws-cost-exporter/internal/aws/common"
 	appconfig "github.com/sakuya1998/aws-cost-exporter/internal/config"
 )
 
-// New constructs a Cost Explorer client from the AWS default credential chain.
+// New constructs a Cost Explorer client from the configured single credential source.
 func New(ctx context.Context, value appconfig.AWSConfig) (*awscostexplorer.Client, error) {
 	sdkConfig, err := newSDKConfig(ctx, value)
 	if err != nil {
@@ -26,57 +26,35 @@ func New(ctx context.Context, value appconfig.AWSConfig) (*awscostexplorer.Clien
 
 	return awscostexplorer.NewFromConfig(sdkConfig, func(options *awscostexplorer.Options) {
 		options.AppID = "aws-cost-exporter"
-		if strings.TrimSpace(value.EndpointURL) != "" {
-			options.BaseEndpoint = aws.String(strings.TrimSpace(value.EndpointURL))
+		if strings.TrimSpace(value.Endpoints.CostExplorer) != "" {
+			options.BaseEndpoint = aws.String(strings.TrimSpace(value.Endpoints.CostExplorer))
 		}
 	}), nil
 }
 
-// newSDKConfig applies client-level timeout, profile, region, and retry policy.
+// newSDKConfig applies one configured credential source and client policy.
 func newSDKConfig(ctx context.Context, value appconfig.AWSConfig) (aws.Config, error) {
 	httpClient := awshttp.NewBuildableClient().WithTimeout(value.RequestTimeout)
 	options := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(value.Region),
 		awsconfig.WithHTTPClient(httpClient),
 		awsconfig.WithRetryer(func() aws.Retryer {
-			return newRetryer(value.Retry)
+			return awscommon.NewRetryer(value.Retry)
 		}),
 	}
-	if strings.TrimSpace(value.Profile) != "" {
-		options = append(options, awsconfig.WithSharedConfigProfile(strings.TrimSpace(value.Profile)))
+	if len(value.Credentials.Sources) > 1 {
+		return aws.Config{}, fmt.Errorf("standalone Cost Explorer client requires exactly one credential source")
+	}
+	for _, source := range value.Credentials.Sources {
+		switch source.Type {
+		case appconfig.CredentialSourceProfile:
+			options = append(options, awsconfig.WithSharedConfigProfile(source.Profile))
+		case appconfig.CredentialSourceStaticEnv:
+			options = append(options, awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+				os.Getenv(source.AccessKeyIDEnv), os.Getenv(source.SecretAccessKeyEnv), os.Getenv(source.SessionTokenEnv),
+			)))
+		}
 	}
 
 	return awsconfig.LoadDefaultConfig(ctx, options...)
-}
-
-// newRetryer creates the SDK standard retryer with project backoff settings.
-func newRetryer(value appconfig.RetryConfig) aws.Retryer {
-	return retry.NewStandard(func(options *retry.StandardOptions) {
-		options.MaxAttempts = value.MaxAttempts
-		options.MaxBackoff = value.MaxBackoff
-		options.Backoff = jitterBackoff{base: value.BaseDelay, max: value.MaxBackoff}
-	})
-}
-
-// jitterBackoff implements capped exponential full jitter.
-type jitterBackoff struct {
-	base time.Duration
-	max  time.Duration
-}
-
-// BackoffDelay returns a randomized delay bounded by the configured maximum.
-func (backoff jitterBackoff) BackoffDelay(attempt int, _ error) (time.Duration, error) {
-	delay := backoff.base
-	for step := 1; step < attempt && delay < backoff.max; step++ {
-		if delay > backoff.max/2 {
-			delay = backoff.max
-			break
-		}
-		delay *= 2
-	}
-	if delay > backoff.max {
-		delay = backoff.max
-	}
-
-	return time.Duration(rand.Float64() * float64(delay)), nil // #nosec G404 -- retry jitter is not security-sensitive randomness.
 }

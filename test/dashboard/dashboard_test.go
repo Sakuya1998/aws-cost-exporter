@@ -51,7 +51,7 @@ func TestDashboardContainsRequiredPanelsAndVariables(t *testing.T) {
 	for _, item := range value.Templating.List {
 		variables[item.Name] = item
 	}
-	for _, name := range []string{"job", "instance", "currency", "aws_service", "aws_region", "linked_account_id"} {
+	for _, name := range []string{"job", "instance", "target", "currency", "aws_service", "aws_region", "linked_account_id"} {
 		item, exists := variables[name]
 		if !exists || !item.IncludeAll || !strings.Contains(item.Query.Query, "label_values(") {
 			t.Errorf("variable %s is missing label_values/includeAll", name)
@@ -109,14 +109,18 @@ func TestDashboardPromQLUsesOnlyRealCurrencySafeMetrics(t *testing.T) {
 			}
 			if strings.Contains(query.Expr, "aws_cost_") &&
 				!strings.Contains(query.Expr, "aws_cost_exporter_") {
-				for _, filter := range []string{`job=~"$job"`, `instance=~"$instance"`, `currency=~"$currency"`} {
+				filters := []string{`job=~"$job"`, `instance=~"$instance"`, `target=~"$target"`}
+				if !strings.Contains(query.Expr, "aws_cost_account_info") {
+					filters = append(filters, `currency=~"$currency"`)
+				}
+				for _, filter := range filters {
 					if !strings.Contains(query.Expr, filter) {
 						t.Errorf("panel %q business query lacks %s: %s", item.Title, filter, query.Expr)
 					}
 				}
 			}
 			if strings.HasPrefix(item.Title, "Top 10 ") &&
-				!strings.Contains(query.Expr, "topk by (currency)") {
+				!strings.Contains(query.Expr, "topk by (target, currency)") {
 				t.Errorf("panel %q ranks different currencies together: %s", item.Title, query.Expr)
 			}
 		}
@@ -141,8 +145,8 @@ func TestMonthEndEstimateDoesNotCountTodayTwice(t *testing.T) {
 			for _, term := range []string{
 				"aws_cost_month_to_date_amount",
 				"aws_cost_daily_amount",
-				" - sum by (currency)",
-				" + sum by (currency)",
+				" - sum by (target, currency)",
+				" + sum by (target, currency)",
 			} {
 				if !strings.Contains(query.Expr, term) {
 					t.Errorf("panel %q forecast query lacks overlap-safe term %q: %s", item.Title, term, query.Expr)
@@ -173,10 +177,11 @@ func metricContracts(t *testing.T) map[string]map[string]struct{} {
 	if err != nil {
 		t.Fatalf("read cost metric contract: %v", err)
 	}
-	costPattern := regexp.MustCompile(`newDesc\("([^"]+)",\s*"[^"]*",\s*"([^"]*)"\)`)
+	costPattern := regexp.MustCompile(`costDesc\("([^"]+)",\s*"[^"]*",\s*"([^"]*)"\)`)
 	for _, match := range costPattern.FindAllStringSubmatch(string(costSource), -1) {
-		result["aws_cost_"+match[1]] = labels("currency", match[2])
+		result["aws_cost_"+match[1]] = labels("target", "currency", match[2])
 	}
+	result["aws_cost_account_info"] = labels("target", "linked_account_id", "account_name", "account_status")
 	exporterSource, err := os.ReadFile(filepath.Join("..", "..", "internal", "metrics", "exporter.go"))
 	if err != nil {
 		t.Fatalf("read exporter metric contract: %v", err)
@@ -188,6 +193,9 @@ func metricContracts(t *testing.T) map[string]map[string]struct{} {
 		if match[1] == "histogram" {
 			result[name+"_bucket"] = labels(strings.ReplaceAll(match[3], `"`, ""), "le")
 		}
+	}
+	for _, name := range []string{"collector_up", "last_success_timestamp_seconds", "last_attempt_timestamp_seconds", "cache_age_seconds", "snapshot_series"} {
+		result["aws_cost_exporter_"+name] = labels("target", "collector")
 	}
 	return result
 }

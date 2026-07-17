@@ -7,37 +7,39 @@ import (
 	"log/slog"
 	"math"
 	rand "math/rand/v2"
-	"strings"
 	"sync"
 	"time"
 
 	basecollector "github.com/sakuya1998/aws-cost-exporter/internal/collector"
-	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 )
 
-// Collector is the scheduler's collection dependency.
 type Collector = basecollector.Collector
 
-// Store is the narrow publication port required by the runner.
-type Store interface {
-	Publish(string, cost.PartialSnapshot) error
-	RecordFailure(string) error
+// Job binds one collector to its independent periodic schedule.
+type Job struct {
+	Collector      Collector
+	Interval       time.Duration
+	StartupRefresh bool
 }
 
-// Clock supplies current time and resettable scheduling timers.
+type Store interface {
+	Publish(identity.CollectorID, snapshot.PartialSnapshot) error
+	RecordFailure(identity.CollectorID) error
+}
+
 type Clock interface {
 	Now() time.Time
 	NewTimer(time.Duration) Timer
 }
 
-// Observer must be concurrency-safe and return quickly from bounded event calls.
 type Observer interface {
-	ObserveRefresh(collector, status string, duration time.Duration)
-	ObserveSkipped(collector, reason string)
-	ObserveCachePublishError(collector, operation string)
+	ObserveRefresh(identity.CollectorID, string, time.Duration)
+	ObserveSkipped(identity.CollectorID, string)
+	ObserveCachePublishError(identity.CollectorID, string)
 }
 
-// Config controls basic periodic scheduling.
 type Config struct {
 	Interval       time.Duration
 	StartupRefresh bool
@@ -48,123 +50,139 @@ type Config struct {
 	Logger         *slog.Logger
 }
 
-// BackoffConfig controls collector-level retry delays.
 type BackoffConfig struct {
 	Initial    time.Duration
 	Max        time.Duration
 	Multiplier float64
 }
 
-// ErrInvalidConfig indicates unsafe scheduler wiring or values.
 var ErrInvalidConfig = errors.New("invalid scheduler configuration")
 
-// Runner schedules collectors with bounded concurrency and single-flight.
+// Runner schedules target-scoped jobs with bounded concurrency and single-flight.
 type Runner struct {
-	collectors []Collector
-	store      Store
-	clock      Clock
-	random     func() float64
-	config     Config
-	semaphore  chan struct{}
-	runningMu  sync.Mutex
-	running    map[string]bool
-	jobs       map[string]chan time.Time
-	workers    sync.WaitGroup
+	jobs      []Job
+	store     Store
+	clock     Clock
+	random    func() float64
+	config    Config
+	semaphore chan struct{}
+	randomMu  sync.Mutex
+	runningMu sync.Mutex
+	running   map[identity.CollectorID]bool
+	queues    map[identity.CollectorID]chan time.Time
+	workers   sync.WaitGroup
 }
 
-// New validates dependencies and constructs a runner.
+// New preserves the simple same-schedule constructor for internal callers.
 func New(collectors []Collector, store Store, clock Clock, random func() float64, config Config) (*Runner, error) {
+	jobs := make([]Job, 0, len(collectors))
+	for _, collector := range collectors {
+		jobs = append(jobs, Job{Collector: collector, Interval: config.Interval, StartupRefresh: config.StartupRefresh})
+	}
+	return NewJobs(jobs, store, clock, random, config)
+}
+
+// NewJobs constructs a runner with independent job intervals.
+func NewJobs(jobs []Job, store Store, clock Clock, random func() float64, config Config) (*Runner, error) {
 	backoff := config.Backoff
-	if len(collectors) == 0 || store == nil || clock == nil || config.Interval <= 0 || config.MaxConcurrency <= 0 || config.JitterRatio < 0 || config.JitterRatio > 0.5 || backoff.Initial <= 0 || backoff.Max < backoff.Initial || backoff.Multiplier <= 1 || math.IsNaN(backoff.Multiplier) || math.IsInf(backoff.Multiplier, 0) {
+	if len(jobs) == 0 || store == nil || clock == nil || config.MaxConcurrency <= 0 ||
+		config.JitterRatio < 0 || config.JitterRatio > 0.5 || math.IsNaN(config.JitterRatio) || math.IsInf(config.JitterRatio, 0) ||
+		backoff.Initial <= 0 || backoff.Max < backoff.Initial || backoff.Multiplier <= 1 || math.IsNaN(backoff.Multiplier) || math.IsInf(backoff.Multiplier, 0) {
 		return nil, ErrInvalidConfig
 	}
-	names := make(map[string]struct{}, len(collectors))
-	jobs := make(map[string]chan time.Time, len(collectors))
-	for _, instance := range collectors {
-		if instance == nil {
+	known := make(map[identity.CollectorID]struct{}, len(jobs))
+	queues := make(map[identity.CollectorID]chan time.Time, len(jobs))
+	for _, job := range jobs {
+		if job.Collector == nil || job.Interval <= 0 || !job.Collector.ID().Valid() {
 			return nil, ErrInvalidConfig
 		}
-		name := strings.TrimSpace(instance.Name())
-		if _, duplicate := names[name]; name == "" || duplicate {
+		id := job.Collector.ID()
+		if _, duplicate := known[id]; duplicate {
 			return nil, ErrInvalidConfig
 		}
-		names[name] = struct{}{}
-		jobs[name] = make(chan time.Time, 1)
+		known[id] = struct{}{}
+		queues[id] = make(chan time.Time, 1)
 	}
 	if random == nil {
 		random = rand.Float64
 	}
-	return &Runner{collectors: append([]Collector(nil), collectors...), store: store, clock: clock, random: random, config: config, semaphore: make(chan struct{}, config.MaxConcurrency), running: make(map[string]bool), jobs: jobs}, nil
+	return &Runner{
+		jobs: append([]Job(nil), jobs...), store: store, clock: clock, random: random, config: config,
+		semaphore: make(chan struct{}, config.MaxConcurrency), running: make(map[identity.CollectorID]bool), queues: queues,
+	}, nil
 }
 
-// Run starts workers once, blocks until cancellation, then waits for them.
+// Run starts schedule and collection workers and waits for complete cancellation.
 func (runner *Runner) Run(ctx context.Context) {
-	runner.workers.Add(len(runner.collectors))
-	for _, instance := range runner.collectors {
-		go runner.worker(ctx, instance)
+	runner.workers.Add(2 * len(runner.jobs))
+	for _, job := range runner.jobs {
+		go runner.schedule(ctx, job)
+		go runner.worker(ctx, job.Collector)
 	}
-	if runner.config.StartupRefresh {
-		runner.dispatch(runner.clock.Now())
+	<-ctx.Done()
+	runner.workers.Wait()
+}
+
+func (runner *Runner) schedule(ctx context.Context, job Job) {
+	defer runner.workers.Done()
+	if job.StartupRefresh {
+		runner.dispatch(job.Collector.ID(), runner.clock.Now())
 	}
-	timer := runner.clock.NewTimer(runner.nextDelay())
+	timer := runner.clock.NewTimer(runner.nextDelay(job.Interval))
 	defer stopTimer(timer)
 	for {
 		select {
 		case <-ctx.Done():
-			stopTimer(timer)
-			runner.workers.Wait()
 			return
 		case <-timer.Chan():
-			runner.dispatch(runner.clock.Now())
-			if !timer.Reset(runner.nextDelay()) {
+			runner.dispatch(job.Collector.ID(), runner.clock.Now())
+			if !timer.Reset(runner.nextDelay(job.Interval)) {
 				stopTimer(timer)
-				timer = runner.clock.NewTimer(runner.nextDelay())
+				timer = runner.clock.NewTimer(runner.nextDelay(job.Interval))
 			}
 		}
 	}
 }
 
-func (runner *Runner) nextDelay() time.Duration {
+func (runner *Runner) nextDelay(interval time.Duration) time.Duration {
+	runner.randomMu.Lock()
 	value := min(max(runner.random(), 0), 1)
-	return runner.config.Interval + time.Duration(float64(runner.config.Interval)*runner.config.JitterRatio*value)
+	runner.randomMu.Unlock()
+	return interval + time.Duration(float64(interval)*runner.config.JitterRatio*value)
 }
 
-func (runner *Runner) dispatch(reference time.Time) {
-	for _, instance := range runner.collectors {
-		name := instance.Name()
-		runner.runningMu.Lock()
-		if runner.running[name] {
-			runner.runningMu.Unlock()
-			if runner.config.Observer != nil {
-				runner.config.Observer.ObserveSkipped(name, "single_flight")
-			}
-			continue
-		}
-		runner.running[name] = true
+func (runner *Runner) dispatch(id identity.CollectorID, reference time.Time) {
+	runner.runningMu.Lock()
+	if runner.running[id] {
 		runner.runningMu.Unlock()
-		runner.jobs[name] <- reference
+		if runner.config.Observer != nil {
+			runner.config.Observer.ObserveSkipped(id, "single_flight")
+		}
+		return
 	}
+	runner.running[id] = true
+	runner.runningMu.Unlock()
+	runner.queues[id] <- reference
 }
 
-func (runner *Runner) worker(ctx context.Context, instance Collector) {
-	name := instance.Name()
+func (runner *Runner) worker(ctx context.Context, collector Collector) {
+	id := collector.ID()
 	defer runner.workers.Done()
-	defer runner.clearRunning(name)
+	defer runner.clearRunning(id)
 	for {
 		select {
-		case reference := <-runner.jobs[name]:
-			runner.collect(ctx, reference, instance)
-			runner.runningMu.Lock()
-			delete(runner.running, name)
-			runner.runningMu.Unlock()
+		case reference := <-runner.queues[id]:
+			runner.collect(ctx, reference, collector)
+			runner.clearRunning(id)
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func (runner *Runner) collect(ctx context.Context, reference time.Time, instance Collector) {
+func (runner *Runner) collect(ctx context.Context, reference time.Time, collector Collector) {
 	delay := runner.config.Backoff.Initial
+	id := collector.ID()
 	for {
 		select {
 		case runner.semaphore <- struct{}{}:
@@ -172,8 +190,14 @@ func (runner *Runner) collect(ctx context.Context, reference time.Time, instance
 			return
 		}
 		started := runner.clock.Now()
-		snapshot, err := instance.Collect(ctx, reference)
+		partial, err := collector.Collect(ctx, reference)
 		<-runner.semaphore
+		if err == nil {
+			if publishErr := runner.store.Publish(id, partial); publishErr != nil {
+				runner.observeCachePublishError(id, "publish", publishErr)
+				err = publishErr
+			}
+		}
 		if runner.config.Observer != nil {
 			status := "success"
 			if err != nil {
@@ -182,23 +206,19 @@ func (runner *Runner) collect(ctx context.Context, reference time.Time, instance
 					status = "canceled"
 				}
 			}
-			runner.config.Observer.ObserveRefresh(instance.Name(), status, runner.clock.Now().Sub(started))
+			runner.config.Observer.ObserveRefresh(id, status, runner.clock.Now().Sub(started))
 		}
 		if err == nil {
-			if publishErr := runner.store.Publish(instance.Name(), snapshot); publishErr != nil {
-				runner.observeCachePublishError(instance.Name(), "publish", publishErr)
-			}
 			return
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		name := instance.Name()
 		var retryable interface{ Retryable() bool }
 		canRetry := errors.As(err, &retryable) && retryable.Retryable()
-		runner.logCollectorFailure(name, err, canRetry)
-		if recordErr := runner.store.RecordFailure(name); recordErr != nil {
-			runner.observeCachePublishError(name, "record_failure", recordErr)
+		runner.logCollectorFailure(id, err, canRetry)
+		if recordErr := runner.store.RecordFailure(id); recordErr != nil {
+			runner.observeCachePublishError(id, "record_failure", recordErr)
 		}
 		if !canRetry {
 			return
@@ -216,7 +236,7 @@ func (runner *Runner) collect(ctx context.Context, reference time.Time, instance
 	}
 }
 
-func (runner *Runner) logCollectorFailure(collector string, err error, retryable bool) {
+func (runner *Runner) logCollectorFailure(id identity.CollectorID, err error, retryable bool) {
 	if runner.config.Logger == nil {
 		return
 	}
@@ -228,20 +248,15 @@ func (runner *Runner) logCollectorFailure(collector string, err error, retryable
 			kind = classified.SafeKind()
 		}
 	}
-	runner.config.Logger.Warn(
-		"collector refresh failed",
-		"collector", collector,
-		"error_kind", kind,
-		"retryable", retryable,
-	)
+	runner.config.Logger.Warn("collector refresh failed", "target", id.Target, "collector", id.Name, "error_kind", kind, "retryable", retryable)
 }
 
-func (runner *Runner) observeCachePublishError(collector, operation string, err error) {
+func (runner *Runner) observeCachePublishError(id identity.CollectorID, operation string, err error) {
 	if runner.config.Logger != nil {
-		runner.config.Logger.Warn("cache publish failed", "collector", collector, "operation", operation, "err", err)
+		runner.config.Logger.Warn("cache publish failed", "target", id.Target, "collector", id.Name, "operation", operation, "err", err)
 	}
 	if runner.config.Observer != nil {
-		runner.config.Observer.ObserveCachePublishError(collector, operation)
+		runner.config.Observer.ObserveCachePublishError(id, operation)
 	}
 }
 
@@ -253,8 +268,8 @@ func (runner *Runner) nextBackoff(delay time.Duration) time.Duration {
 	return time.Duration(next)
 }
 
-func (runner *Runner) clearRunning(name string) {
+func (runner *Runner) clearRunning(id identity.CollectorID) {
 	runner.runningMu.Lock()
-	delete(runner.running, name)
+	delete(runner.running, id)
 	runner.runningMu.Unlock()
 }

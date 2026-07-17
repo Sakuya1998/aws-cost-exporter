@@ -1,202 +1,265 @@
 # AWS Cost Exporter
 
-Repository: [github.com/sakuya1998/aws-cost-exporter](https://github.com/sakuya1998/aws-cost-exporter)
+[github.com/sakuya1998/aws-cost-exporter](https://github.com/sakuya1998/aws-cost-exporter) exports cached AWS billing data for Prometheus. It is an exporter, not a financial reconciliation system.
 
-AWS Cost Exporter is a Prometheus exporter for AWS Cost Explorer: a "Node
-Exporter for AWS cost" for teams that already operate Prometheus, Grafana, and
-Alertmanager. It is not a financial reconciliation system, billing UI, or
-invoice source. Unlike YACE it specializes in billing data; unlike OpenCost and
-Kubecost it is not Kubernetes allocation software; unlike CUR it does not offer
-line-item analytics. See [ARCHITECTURE.md](ARCHITECTURE.md).
+v0.2 operates across explicitly configured AWS account targets. Each target selects a named default-chain, shared-profile, or environment-backed credential source and may optionally AssumeRole before enabling Cost Explorer, Organizations metadata, and allowlisted AWS Budgets.
 
-## Data and cost warnings
+Prometheus scrapes only an immutable in-memory snapshot and does not call AWS during a Prometheus scrape.
 
-Cost Explorer API requests are billed per paginated request. Defaults refresh
-every 6h and rate-limit AWS calls to 0.5 RPS.
-The exporter does not call AWS during a Prometheus scrape; collectors refresh
-an atomic in-memory snapshot.
-With every collector enabled and unpaginated responses, one startup refresh
-issues 8 `GetCostAndUsage` calls plus 1 `GetCostForecast`. Pagination
-multiplies usage: `collectors × 2 × pages + forecast`. Use
-`cost_explorer.filters.services` or `cost_explorer.filters.regions` on large
-accounts to reduce pages before collection.
-`cost_explorer.max_pages` (default 50) hard-stops each paginated query.
-Tune example alerts in `rules/prometheus/aws-cost-exporter.rules.yaml`:
-`AWSCostExplorerPaginationSpike` uses
-`sum by (job, instance) (increase(aws_cost_exporter_pagination_pages_total[1h]))`
-and `AWSCostExplorerThrottleSustained` uses
-`rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])`.
-The shared rate limiter applies to every SDK attempt, including retries.
-`aws_cost_exporter_aws_api_requests_total` counts logical SDK operations,
-`aws_cost_exporter_pagination_pages_total` counts successfully read pages, and
-`aws_cost_exporter_aws_api_retries_total` counts acquired SDK retry tokens.
-Billable HTTP attempts can exceed logical operations when retries occur.
-Per refresh, estimate Cost Explorer calls as
-`collectors × 2 × pages + forecast` (for example 4 pages with total+service
-enabled ≈ 16 `GetCostAndUsage` plus forecast when enabled).
-`cost_explorer.dimensions.series_limit` caps Prometheus export series only; it
-does not limit Cost Explorer requests. Use `cost_explorer.filters` on large
-accounts to reduce grouped pages before collection.
-`cost_explorer.cost_metric` is wired to Cost Explorer requests (only
-`UnblendedCost` is supported in v0.1). `cost_explorer.dimensions.overflow_label`
-controls the aggregate label when `overflow: aggregate` (default `__other__`).
-Service, region, and account families honor `series_limit`; `total` and forecast
-metrics expand naturally by `currency` label and are not subject to `series_limit`.
-Set `server.shutdown_timeout` high enough for paginated refreshes:
-`collectors × 2 × max_pages / requests_per_second` is the no-retry pacing
-baseline; SDK retries and backoff increase the required shutdown time.
-AWS updates billing data only periodically, and delayed charges can be
-backfilled. Metrics are operational observations, not accounting records.
-Never sum different `currency` label values.
+## Install
 
-## Prerequisites and IAM
+Build locally:
 
-Enable Cost Explorer in the payer account, then attach
-[`examples/iam/mvp-readonly.json`](examples/iam/mvp-readonly.json). MVP requires
-only `ce:GetCostAndUsage` and `ce:GetCostForecast` on `Resource: "*"`;
-`ce:GetDimensionValues`, Organizations access, write access, and static keys are
-not required. A management account can group visible costs by `LINKED_ACCOUNT`
-without calling Organizations APIs.
-
-Credentials come from the AWS default chain: environment, shared profile,
-container credentials, IRSA, or EKS Pod Identity. There are no access-key
-configuration fields. Files under `examples/iam` for Organizations and
-AssumeRole document future capabilities and are not implemented in v0.1.
-AssumeRole examples use an explicit role ARN and ExternalId; attach the MVP
-policy to the target reader role.
-
-## Install from a release
-
-Published artifacts are attached to GitHub Releases. Container images and Helm
-charts are also published to GHCR under `sakuya1998`.
-
-```sh
-docker pull ghcr.io/sakuya1998/aws-cost-exporter:0.1.0
-helm install aws-cost-exporter oci://ghcr.io/sakuya1998/charts/aws-cost-exporter --version 0.1.0
-```
-
-Verify signatures with `cosign verify` against the release digest before
-deploying in production. Stable tags also publish `latest`; pre-releases do not.
-
-## Run a binary
-
-Clone the repository and build locally, or install a tagged release binary from
-GitHub Releases.
-
-```sh
-git clone https://github.com/sakuya1998/aws-cost-exporter.git
-cd aws-cost-exporter
-```
-
-Go module: `github.com/sakuya1998/aws-cost-exporter`. Go 1.24 or newer is
-required.
-
-```sh
+```bash
 make build
-./aws-cost-exporter --config configs/aws-cost-exporter.example.yaml --check-config
 ./aws-cost-exporter --config configs/aws-cost-exporter.example.yaml
 ```
 
-Useful flags are `--config`, `--listen-address`, `--log-level`,
-`--check-config`, and `--version`. Configuration precedence is flags,
-`AWS_COST_EXPORTER_` environment variables, YAML, then defaults. The complete
-environment name uses `__` between nested keys, for example
-`AWS_COST_EXPORTER_SERVER__LISTEN_ADDRESS=:9090`. The complete schema is in
-`configs/aws-cost-exporter.example.yaml` and
-`internal/config/schema.go`; configuration reload requires a restart.
-`--check-config` validates the same server constraints used at startup. Rate
-limit burst must be between 1 and 5, retry attempts between 1 and 10, and
-`overflow_label` must not contain leading or trailing whitespace. Previously
-accepted values outside these bounds must be corrected before upgrading.
+Container:
 
-## Run with Docker Compose
-
-`docker-compose.yml` mounts the example config and host AWS profile read-only.
-Set `AWS_PROFILE`; on Linux set `AWS_HOST_UID` and `AWS_HOST_GID` when profile
-files are not readable by UID 65532. On Windows, set `HOME` to the profile home
-before Compose resolves `${HOME}/.aws`.
-
-```sh
+```bash
+docker pull ghcr.io/sakuya1998/aws-cost-exporter:latest
 docker compose up --build
+```
+
+Helm OCI chart:
+
+```bash
+helm install aws-cost-exporter \
+  oci://ghcr.io/sakuya1998/charts/aws-cost-exporter \
+  --set config.data.targets[0].account_id=444455556666
+```
+
+The chart intentionally defaults to `replicaCount: 1`. Multiple replicas duplicate AWS requests and expose duplicate scrape targets because v0.2 has no leader election or shared cache.
+
+## Configuration
+
+The only accepted top-level keys are:
+
+```text
+server
+log
+aws
+targets
+collection
+cache
+telemetry
+```
+
+There is no `config_version`, v0.1 compatibility parser, automatic migration, or deprecated alias. Unknown fields are rejected.
+
+Start with [configs/aws-cost-exporter.example.yaml](configs/aws-cost-exporter.example.yaml). At least one of 1–20 targets must be `required` and enable Cost Explorer.
+
+```yaml
+aws:
+  region: us-east-1
+  request_timeout: 30s
+  credentials:
+    sources:
+      runtime:
+        type: default_chain
+      account-a:
+        type: profile
+        profile: account-a
+      legacy:
+        type: static_env
+        access_key_id_env: LEGACY_AWS_ACCESS_KEY_ID
+        secret_access_key_env: LEGACY_AWS_SECRET_ACCESS_KEY
+  endpoints:
+    sts: ""
+    cost_explorer: ""
+    organizations: ""
+    budgets: ""
+  retry:
+    max_attempts: 5
+    base_delay: 1s
+    max_backoff: 30s
+  rate_limit:
+    global_requests_per_second: 1
+    global_burst: 2
+    target_requests_per_second: 0.5
+    target_burst: 1
+
+targets:
+  - name: payer-prod
+    account_id: "444455556666"
+    required: true
+    credentials:
+      source: runtime
+      assume_role:
+        role_arn: arn:aws:iam::444455556666:role/aws-cost-exporter-reader
+        external_id_env: AWS_COST_EXPORTER_PAYER_PROD_EXTERNAL_ID
+        session_name: aws-cost-exporter-payer-prod
+    cost_explorer:
+      enabled: true
+      filters:
+        linked_account_ids: []
+        services: []
+        regions: []
+    organizations:
+      enabled: true
+      account_ids: []
+    budgets:
+      enabled: true
+      names: [Monthly-Production]
+```
+
+Credential source types are `default_chain`, `profile`, and `static_env`. Every target explicitly references one source. A source may back many AssumeRole targets but at most one direct target. Account IDs and Role ARNs are unique. Profile sources use standard AWS shared configuration behavior, including `source_profile`, SSO, `credential_process`, and profile role chains.
+
+`static_env` and `external_id_env` contain environment-variable names, never secret values. Referenced variables must exist and be non-empty during `--check-config` and production startup. AK, SK, session tokens, and ExternalId values never appear in configuration, ConfigMaps, logs, metrics, or debug endpoints. AssumeRole ARNs must identify one exact role without wildcards and match the target `account_id`.
+
+Before a collector accesses billing APIs, its final target credentials are verified with STS `GetCallerIdentity`. A mismatched Profile or credential source cannot publish costs under the wrong target. Verification is target-scoped, single-flight, cached after success, and uses the normal global and target request limiters.
+
+Organizations `account_ids` is an optional allowlist. When non-empty, only those accounts are exported. When empty, metadata is exported only for linked accounts already observed by the target account cost collector. Organizations never creates targets automatically and never exposes account email.
+
+Budgets requires a non-empty exact-name allowlist. Missing actual or forecasted values omit the corresponding series instead of exporting zero.
+
+Important bounds:
+
+- `targets` and credential sources: 1–20.
+- `aws.retry.max_attempts`: 1–10.
+- global and target burst: 1–5; RPS must be finite, positive, and no more than 10.
+- all `max_pages`: 1–200.
+- Cost Explorer and Organizations `series_limit`: at most 2000; Budgets: at most 500.
+- `collection.jitter_ratio`: finite and 0–0.5.
+- `collection.cost_explorer.cost_metric`: only `UnblendedCost`.
+- `collection.cost_explorer.dimensions.overflow_label` must already be trimmed and must not collide with provider values.
+- `server.shutdown_timeout` and all other timeouts must be positive.
+
+Validate the exact production configuration and every referenced credential or ExternalId environment variable:
+
+```bash
+./aws-cost-exporter --config config.yaml --check-config
+```
+
+CLI flags:
+
+```text
+--config
+--listen-address
+--log-level
+--check-config
+--version
+```
+
+Environment overrides use double underscores, for example `AWS_COST_EXPORTER_SERVER__LISTEN_ADDRESS=:9090`.
+
+For Helm, use `config.secretEnvRefs` to inject `static_env` credentials and ExternalId values from existing Secrets. Use `awsSharedConfig.existingSecret` to mount AWS `credentials` and `config` files; the chart sets `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE`. Secret values never enter the generated ConfigMap. For Docker Compose, the read-only `${HOME}/.aws` mount supplies named Profile sources.
+
+## AWS permissions
+
+Cost Explorer targets require:
+
+```text
+ce:GetCostAndUsage
+ce:GetCostForecast
+```
+
+The exporter calls STS `GetCallerIdentity` for every final target identity; AWS does not normally require an explicit allow for that operation. Organizations targets additionally require `organizations:ListAccounts` and `organizations:DescribeOrganization`. Budgets targets require `budgets:ViewBudget`. A source principal requires `sts:AssumeRole` only for each exact configured role ARN.
+
+See [examples/iam](examples/iam). Static access key values are never configuration fields; only environment-variable names may be configured.
+
+## AWS request cost and limits
+
+Cost Explorer API requests are billed by AWS, currently USD 0.01 per billable request. Verify current AWS pricing before deployment.
+
+With total, service, region, and account collectors enabled, one unpaginated refresh uses 8 `GetCostAndUsage` logical operations: daily and month-to-date for four collectors. Forecast adds one `GetCostForecast`. For `T` targets and `P` average pages:
+
+```text
+approximate Cost Explorer requests per refresh = T × (8 × P + forecast operations)
+```
+
+SDK retries can produce additional billable HTTP attempts. `aws_cost_exporter_aws_api_requests_total` counts logical SDK operations, `aws_cost_exporter_pagination_pages_total` counts successfully read pages, and `aws_cost_exporter_aws_api_retries_total` counts authorized retry attempts. They are related but not interchangeable with the AWS invoice.
+
+Both initial attempts and retries acquire the global limiter and then the target limiter. Tighten target filters, increase refresh intervals, or reduce `max_pages` before raising rate limits. `series_limit` bounds Prometheus cardinality but does not reduce Cost Explorer pages.
+
+Use `AWSCostExplorerPaginationSpike` and `AWSCostExplorerThrottleSustained` from [rules/prometheus/aws-cost-exporter.rules.yaml](rules/prometheus/aws-cost-exporter.rules.yaml).
+
+## HTTP endpoints
+
+```bash
+curl http://localhost:8080/metrics
+curl http://localhost:8080/healthz
 curl http://localhost:8080/ready
+curl http://localhost:8080/version
 ```
 
-The image is distroless, non-root, and compatible with a read-only root
-filesystem. It contains no shell. See
-[logging operations](docs/operations/logging.md) for external rotation.
+`/healthz` represents process liveness. `/ready` requires every enabled Cost Explorer collector, including forecast, on every required target to have a non-stale successful snapshot. Optional targets, Organizations, and Budgets do not gate readiness. Old snapshots remain available after refresh failures.
 
-## Install with Helm
+Debug endpoints are disabled by default and never expose credentials or configuration secrets.
 
-Use IRSA or EKS Pod Identity; the chart does not create AWS credential Secrets.
-Install from the local chart path during development, or from GHCR after a
-release:
+## Metrics
 
-```sh
-helm install aws-cost-exporter ./charts/aws-cost-exporter \
-  --set-string serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=arn:aws:iam::111122223333:role/aws-cost-exporter
+Every business and target-scoped operational metric has a mandatory `target` label. Never sum different `currency` values.
 
-helm install aws-cost-exporter oci://ghcr.io/sakuya1998/charts/aws-cost-exporter \
-  --version 0.1.0 \
-  --set-string serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=arn:aws:iam::111122223333:role/aws-cost-exporter
-```
-
-The default image repository is `ghcr.io/sakuya1998/aws-cost-exporter`.
-
-The chart defaults to one replica. More replicas multiply Cost Explorer calls
-and expose duplicate scrape targets. Optional integrations include
-`serviceMonitor.enabled`, `prometheusRule.enabled`, `networkPolicy.enabled`,
-and `podDisruptionBudget.enabled`.
-
-## Prometheus and HTTP
-
-Scrape `GET /metrics` on port 8080 by default; `server.metrics_path` can change
-the path. `GET /healthz` reports process liveness; `GET /ready` requires initial
-data and rejects stale snapshots; `GET /version` returns build metadata. Debug
-and pprof routes default to 404 and must be network-restricted when enabled.
-
-Business gauges are:
+Cost metrics:
 
 ```text
-aws_cost_daily_amount, aws_cost_month_to_date_amount
-aws_cost_service_daily_amount, aws_cost_service_month_to_date_amount
-aws_cost_region_daily_amount, aws_cost_region_month_to_date_amount
-aws_cost_account_daily_amount, aws_cost_account_month_to_date_amount
-aws_cost_month_forecast_mean_amount, aws_cost_month_forecast_lower_bound_amount
+aws_cost_daily_amount
+aws_cost_month_to_date_amount
+aws_cost_service_daily_amount
+aws_cost_service_month_to_date_amount
+aws_cost_region_daily_amount
+aws_cost_region_month_to_date_amount
+aws_cost_account_daily_amount
+aws_cost_account_month_to_date_amount
+aws_cost_month_forecast_mean_amount
+aws_cost_month_forecast_lower_bound_amount
 aws_cost_month_forecast_upper_bound_amount
+aws_cost_account_info
 ```
 
-Every business series has `currency`. Empty regions become `global`; each
-dimension family is capped at `series_limit` (default 1000), with overflow
-conserved in `__other__`. Families never form a service/region/account Cartesian
-product. There is no date label: daily charts use scrape history.
-
-Self-observability metrics are:
+Budgets metrics:
 
 ```text
-aws_cost_exporter_collector_up, aws_cost_exporter_cache_age_seconds
-aws_cost_exporter_last_success_timestamp_seconds, aws_cost_exporter_last_attempt_timestamp_seconds
-aws_cost_exporter_snapshot_series, aws_cost_exporter_refresh_total
-aws_cost_exporter_aws_api_requests_total, aws_cost_exporter_aws_api_retries_total
-aws_cost_exporter_pagination_pages_total, aws_cost_exporter_cache_publish_errors_total
-aws_cost_exporter_scheduler_shutdown_timeouts_total
+aws_budget_limit_amount
+aws_budget_actual_amount
+aws_budget_forecasted_amount
+```
+
+Budget labels are `target`, `budget_name`, `currency`, `budget_type`, and `time_unit`.
+
+Exporter metrics:
+
+```text
+aws_cost_exporter_collector_up
+aws_cost_exporter_last_success_timestamp_seconds
+aws_cost_exporter_last_attempt_timestamp_seconds
+aws_cost_exporter_cache_age_seconds
+aws_cost_exporter_snapshot_series
+aws_cost_exporter_refresh_total
+aws_cost_exporter_refresh_duration_seconds
+aws_cost_exporter_aws_api_requests_total
+aws_cost_exporter_aws_api_retries_total
+aws_cost_exporter_aws_api_request_duration_seconds
 aws_cost_exporter_scheduler_skipped_runs_total
 aws_cost_exporter_dimension_overflow_values_total
-aws_cost_exporter_refresh_duration_seconds, aws_cost_exporter_aws_api_request_duration_seconds
+aws_cost_exporter_pagination_pages_total
+aws_cost_exporter_cache_publish_errors_total
 aws_cost_exporter_build_info
+aws_cost_exporter_scheduler_shutdown_timeouts_total
 ```
 
-`collector_up` describes the latest attempt; stale data is indicated by cache
-age and readiness. Old snapshots remain available from `/metrics`.
+`aws_cost_exporter_build_info` and `aws_cost_exporter_scheduler_shutdown_timeouts_total` are process-global. All other exporter metrics above are target-scoped.
 
-## Operations assets
+Dimension values beyond `collection.cost_explorer.dimensions.series_limit` are aggregated into `overflow_label`, normally `__other__`, while preserving monetary totals.
 
-- Dashboard: `dashboards/grafana/aws-cost-exporter.json`
-- Rules: `rules/prometheus/aws-cost-exporter.rules.yaml`
-- Troubleshooting: `docs/operations/troubleshooting.md`
-- Security reporting: [SECURITY.md](SECURITY.md)
-- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+## Dashboards and operations
 
-## License
+- [dashboards/grafana/aws-cost-exporter.json](dashboards/grafana/aws-cost-exporter.json)
+- [rules/prometheus/aws-cost-exporter.rules.yaml](rules/prometheus/aws-cost-exporter.rules.yaml)
+- [docs/operations/troubleshooting.md](docs/operations/troubleshooting.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
 
-Copyright 2026 sakuya1998. Licensed under the Apache License, Version 2.0;
-see [LICENSE](LICENSE) or https://www.apache.org/licenses/LICENSE-2.0.
+The dashboard includes a target selector and keeps target and currency in all monetary aggregations.
+
+## Development
+
+```bash
+go test ./...
+go test -race ./...
+go vet ./...
+golangci-lint run
+```
+
+The repository is licensed under the [Apache License 2.0](LICENSE).

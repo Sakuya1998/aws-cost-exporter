@@ -1,57 +1,35 @@
 # Troubleshooting
 
-## Readiness and stale data
+## Readiness and target isolation
 
-`/ready` returns 503 with `missing` before every required collector has a first
-snapshot or after a required collector fails without usable data. A `stale`
-reason means the last snapshot exceeded `cache.stale_after` (24h by default).
-Old values remain on `/metrics`. `aws_cost_exporter_collector_up` describes the
-latest attempt, while `aws_cost_exporter_cache_age_seconds` measures data age.
+`/ready` returns 503 with `missing` until every enabled Cost Explorer collector on every required target has succeeded. `stale` means its last success exceeded `cache.stale_after`. Optional targets, Organizations, and Budgets do not gate readiness.
 
-## AWS access and retries
+Inspect `aws_cost_exporter_collector_up{target="..."}` and `aws_cost_exporter_cache_age_seconds`. A failed target retains its old snapshot and does not block unrelated targets.
 
-For 403 errors, confirm Cost Explorer is enabled and the runtime identity has
-the two actions in `examples/iam/mvp-readonly.json`. Region must be
-`us-east-1`. Authorization failures are not retried aggressively. For
-throttling or 5xx responses, inspect `aws_cost_exporter_aws_api_requests_total`
-(including `status="throttle"`), `aws_cost_exporter_aws_api_retries_total`,
-and `aws_cost_exporter_pagination_pages_total`. The SDK retries throttled
-requests before the scheduler applies failure backoff and may rerun the entire
-collector refresh. `pagination_pages_total` counts page reads per query;
-`aws_api_requests_total` counts logical SDK operations, while
-`aws_api_retries_total` counts acquired retry tokens. Billable HTTP attempts
-can exceed logical operations when retries occur. When these metrics spike,
-reduce refresh frequency, tighten filters, or lower `max_pages` before raising
-rate limits.
+## AWS access, AssumeRole, and retries
 
-If usage collectors succeed but `forecast` remains down, first confirm the
-runtime role grants `ce:GetCostForecast` in addition to `ce:GetCostAndUsage`.
-Then check the process log for an authorization, validation, or data-unavailable
-error from Cost Explorer. Forecast failures do not invalidate previously
-published usage snapshots.
+For a Cost Explorer 403, confirm `ce:GetCostAndUsage` and `ce:GetCostForecast`. Organizations needs `organizations:ListAccounts` and `organizations:DescribeOrganization`; Budgets needs `budgets:ViewBudget`.
 
-## Unexpected cost data
+For credential failures, verify that the target references an existing source. A `profile` source must exist in `AWS_SHARED_CREDENTIALS_FILE`/`AWS_CONFIG_FILE`; headless SSO profiles need a valid cached login. A `static_env` source requires every configured environment variable to be present and non-empty.
 
-Cost Explorer can deliver delayed backfill, so `AWSDailyCostSpike` may fire
-after AWS revises data; tune its 2h duration around the business calendar.
-Never aggregate different `currency` values. The daily gauge is UTC scrape
-history, not historical billing rows. Forecast covers today through month end;
-month-end estimates must subtract today's amount from MTD before adding it.
+Every target performs `sts:GetCallerIdentity` with its final credentials. A validation failure can mean that the selected Profile or static credentials belong to an account different from `target.account_id`. For AssumeRole failures, verify the exact role ARN, source trust principal, `sts:ExternalId`, target account ID, and `external_id_env`. Credential values, Caller ARN, and ExternalId are intentionally absent from logs.
 
-Dimension values beyond the configured limit are folded into
-`cost_explorer.dimensions.overflow_label` (default `__other__`) without losing
-totals. `series_limit` caps exported Prometheus series only;
-Cost Explorer may still return more groups. Inspect
-`aws_cost_exporter_dimension_overflow_values_total` and
-`aws_cost_exporter_pagination_pages_total` before raising limits. Pagination
-beyond `cost_explorer.max_pages` fails the collector refresh.
-Large grouped accounts should set `cost_explorer.filters` to reduce Cost
-Explorer pages; `series_limit` only bounds exported Prometheus series.
-Inspect `aws_cost_exporter_scheduler_shutdown_timeouts_total` when shutdown
-times out while collectors are still running; increase `server.shutdown_timeout`
-or reduce refresh scope.
+For throttling, inspect `aws_cost_exporter_aws_api_requests_total`, `aws_cost_exporter_aws_api_retries_total`, and `aws_cost_exporter_pagination_pages_total` by target. SDK retries occur after the global and target attempt limiters; scheduler backoff may retry the entire collector. Reduce refresh frequency, filters, or `max_pages` before raising rate limits.
 
-Keep one replica unless duplicate AWS calls and Prometheus targets are intended.
-The debug endpoints are disabled by default; when enabled, protect them with a
-NetworkPolicy or authenticated proxy. Logs go to stdout/stderr; see
-[logging.md](logging.md) for rotation and retention.
+## Cost Explorer request cost
+
+Cost Explorer logical calls, successful pages, SDK retries, and AWS-billed HTTP attempts are different quantities. A four-collector target normally performs 8 `GetCostAndUsage` operations per refresh before pagination, plus forecast. Billing data can be delayed or backfilled.
+
+## Cardinality and unexpected values
+
+Never aggregate different `currency` values. Forecast covers today through month end, so month-end estimates subtract today from MTD before adding forecast.
+
+Cost dimensions beyond `collection.cost_explorer.dimensions.series_limit` fold into `__other__`. Inspect `aws_cost_exporter_dimension_overflow_values_total`. `overflow_label` must not collide with a provider dimension.
+
+Organizations account metadata is limited to the explicit allowlist or observed linked accounts. Budgets is limited to configured names. Limits reject the refresh and retain old data rather than silently truncating it.
+
+## Shutdown, replicas, and debug
+
+Inspect `aws_cost_exporter_scheduler_shutdown_timeouts_total` if shutdown exceeds `server.shutdown_timeout`. Context cancellation should stop AWS waits, SDK retries, backoff, timers, and workers.
+
+Keep one replica unless duplicate AWS requests and Prometheus targets are intentional. Debug endpoints are disabled by default and should be protected by a NetworkPolicy or authenticated proxy.

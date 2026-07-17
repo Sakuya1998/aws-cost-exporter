@@ -2,129 +2,83 @@
 
 ## Purpose
 
-aws-cost-exporter converts low-frequency AWS billing data into stable
-Prometheus metrics. It is an exporter, not a billing database, dashboard, or
-financial reconciliation system. AWS Cost Explorer remains the source of truth,
-while Prometheus provides time-series retention, querying, visualization, and
-alerting.
+aws-cost-exporter converts low-frequency AWS billing APIs into stable, target-scoped Prometheus metrics. AWS remains the source of truth. The exporter is not a billing database or financial reconciliation system.
 
-The architecture optimizes for predictable AWS API usage, fast scrapes, bounded
-metric cardinality, failure isolation, and straightforward extension.
-Prometheus scrapes never trigger an AWS request: a background scheduler refreshes
-an in-memory snapshot and the HTTP handler serves that snapshot.
+Prometheus scrapes never trigger AWS requests. Background collectors publish immutable partial results into one atomic in-memory aggregate snapshot.
 
-## Architectural style
+## Modular monolith
 
-The project is a modular monolith using Clean Architecture with limited
-domain-driven design:
+- `internal/domain` owns target identity, cost, budget, organization, and aggregate snapshot values.
+- `internal/ports` defines narrow application interfaces.
+- `internal/collector` maps reader ports to typed partial snapshots.
+- `internal/scheduler` owns per-job intervals, target-scoped single-flight, global concurrency, and refresh backoff.
+- `internal/aws` owns SDK clients, AssumeRole, request attempts, pagination, mapping, and safe error classification.
+- `internal/cache/memory` owns copy-on-write partials keyed by `CollectorID` and atomic aggregate publication.
+- `internal/metrics` maps snapshots and bounded events to fixed Prometheus descriptors.
+- `internal/httpserver` exposes metrics, probes, version, and optional diagnostics.
+- `internal/app` is the composition root.
 
-- `internal/domain/cost` owns money, time periods, dimensions, forecasts, and
-  snapshot invariants. It depends only on the Go standard library.
-- `internal/ports` defines narrow interfaces required by application logic.
-  Infrastructure-specific types do not cross these interfaces.
-- `internal/collector` translates collection requests into domain snapshots.
-- `internal/scheduler` owns refresh timing, concurrency, and retry orchestration.
-- `internal/aws/costexplorer` adapts aws-sdk-go-v2 to application ports.
-- `internal/cache/memory` publishes immutable snapshots atomically.
-- `internal/metrics` maps domain snapshots to fixed Prometheus descriptors.
-- `internal/httpserver` exposes metrics, probes, version, and optional debugging.
-- `internal/app` is the composition root and performs manual dependency
-  injection.
-- `cmd/aws-cost-exporter` contains only process entry-point behavior.
+Dependencies continue to point inward; domain packages do not import AWS SDK, Prometheus, HTTP, Cobra, or Viper.
 
-Dependencies point inward:
+## Identity and aggregate contract
 
-```mermaid
-flowchart LR
-  Entry[cmd_and_app]
-  Adapters[aws_cache_metrics_http]
-  Application[collectors_and_scheduler]
-  Ports[ports]
-  Domain[domain]
+```go
+type TargetID string
 
-  Entry --> Adapters
-  Entry --> Application
-  Adapters --> Ports
-  Application --> Ports
-  Application --> Domain
-  Ports --> Domain
+type CollectorID struct {
+    Target TargetID
+    Name   string
+}
 ```
 
-The domain must not import AWS SDK, Prometheus, Viper, Cobra, or HTTP packages.
-Collectors must not depend on HTTP or Prometheus. Metrics must not call AWS.
+Every Cost, Forecast, Budget, Organizations account, partial cache entry, collector status, scheduler job, log event, and target-scoped metric carries target identity.
+
+Collectors return one strong `PartialSnapshot` containing typed cost, forecast, budget, and account slices. The scheduler and cache never use `any` or AWS SDK response types.
 
 ## Runtime data flow
 
 ```mermaid
-sequenceDiagram
-  participant Scheduler
-  participant Collector
-  participant CE as CostExplorer
-  participant Cache
-  participant HTTP
-  participant Prometheus
-
-  Scheduler->>Collector: Collect_window
-  Collector->>CE: Query_paginated_cost
-  CE-->>Collector: Cost_results
-  Collector->>Collector: Validate_normalize_limit
-  Collector->>Cache: Publish_complete_snapshot
-  Prometheus->>HTTP: GET_metrics
-  HTTP->>Cache: Load_snapshot
-  Cache-->>HTTP: Immutable_snapshot
-  HTTP-->>Prometheus: Prometheus_exposition
+flowchart LR
+  Base[Base AWS credential chain] --> Target[Target factory]
+  Target --> Direct[Direct credentials]
+  Target --> STS[STS AssumeRole and CredentialsCache]
+  Direct --> Clients[Target AWS clients]
+  STS --> Clients
+  Clients --> Collectors[Target collectors]
+  Collectors --> Scheduler[Shared scheduler]
+  Scheduler --> Cache[Atomic aggregate cache]
+  Cache --> Metrics[Prometheus collectors]
+  Metrics --> HTTP[HTTP server]
 ```
 
-Each collector publishes only after every required page is received and
-validated. A failed refresh preserves the previous successful data. Snapshot
-reads use an atomic pointer and do not acquire an application lock.
+One target failure updates only its `CollectorID` status and retains the last successful partial. Other targets continue refreshing and publishing.
 
-## Collection model
+## AWS request policy
 
-AWS Cost Explorer permits at most two grouping dimensions per request. The MVP
-uses separate collectors and metric families for total, service, region, linked
-account, and forecast data. It does not expose a service-by-region-by-account
-Cartesian product.
+The base AWS config is loaded once. AssumeRole targets use independent credential caches. ExternalId is read from an environment variable and is never included in safe errors or logs.
 
-MVP cost values use `UnblendedCost`, UTC billing periods, and the currency
-returned by AWS. Dates are not metric labels. Each grouped dimension has a
-configurable series limit; overflow values are aggregated into `__other__` so
-the total remains conserved.
+Every SDK attempt follows:
 
-Collectors are registered explicitly through factories. Registration does not
-use package `init` side effects or Go runtime plugins. New collectors implement
-the internal collector contract and share scheduler, cache, and metrics
-infrastructure.
+```text
+global limiter → target limiter → SDK attempt token → HTTP request
+```
 
-## Scheduling and failure behavior
+The wrapper is installed through `GetAttemptToken`, so initial attempts and retries are both limited without replacing SDK retry/backoff/token-bucket behavior. Context cancellation stops limiter waits, retries, pagination, backoff timers, and workers.
 
-The default refresh interval is six hours because Cost Explorer data updates
-infrequently and API pagination is billable. Startup and periodic refreshes use
-jitter, a shared rate limiter, bounded concurrency, and single-flight execution
-per collector.
+Operation, status, and reason labels are fixed enums. Arbitrary AWS messages and request IDs cannot become metric labels.
 
-The AWS SDK owns request-level retries for throttling, server errors, and
-transient network failures. The scheduler owns refresh-level backoff. Permanent
-authorization or validation errors wait for the normal schedule.
+## Snapshot and cardinality
 
-Readiness requires an initial snapshot and sufficiently fresh required
-collectors. Liveness represents process health only. Stale snapshots remain
-available from `/metrics` with explicit age and collector health metrics so
-users can distinguish old data from zero cost.
+Cache writes use a mutex, copy the parts/status maps, rebuild a deterministic aggregate, and publish it through an atomic pointer. Scrapes read the pointer without application locks and iterate immutable values without copying entire slices.
 
-## Security boundaries
+Organizations raw metadata is joined with either the configured account allowlist or observed linked-account cost dimensions. Account email is discarded. Budget names are explicit allowlists. All pages and exposed series have hard limits.
 
-AWS authentication uses the default credential chain; static access keys are not
-configuration fields. The MVP requires only `ce:GetCostAndUsage` and
-`ce:GetCostForecast`. Debug endpoints are disabled by default and must not expose
-configuration, credentials, environment variables, or raw AWS responses. Logs
-and metric labels use structured, bounded, non-sensitive fields. Log rotation is
-delegated to the runtime as defined in [logging operations](docs/operations/logging.md).
+## Readiness and HA
 
-## Compatibility policy
+Required targets gate readiness through all enabled Cost Explorer collectors. Optional targets, Organizations, and Budgets remain observable but do not make the whole process unready. Liveness reports process health only.
 
-Metric names, types, labels, configuration keys, HTTP paths, and exit codes are
-public contracts. Before v1.0, incompatible changes require release notes and a
-migration path when practical. At v1.0, stable contracts follow semantic
-versioning. Renaming or removing metrics, changing label sets or cost semantics,
-and weakening security defaults are incompatible changes.
+v0.2 remains single-replica. See [ADR 0002](docs/adr/0002-ha-refresh-coordination.md) for the HA evaluation.
+
+## Compatibility
+
+v0.2 intentionally replaces the v0.1 configuration and label contract. It has no legacy mode, migration layer, dual exposition, deprecated aliases, or `config_version`. HTTP paths and existing metric names remain stable; target-scoped metrics add the mandatory `target` label.

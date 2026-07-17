@@ -1,6 +1,10 @@
 package cost
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+)
 
 // Window identifies the billing interval represented by a cost.
 type Window string
@@ -14,6 +18,7 @@ const (
 
 // Cost is one monetary observation for a period and dimension.
 type Cost struct {
+	Target    identity.TargetID
 	Window    Window
 	Period    Period
 	Dimension Dimension
@@ -22,6 +27,7 @@ type Cost struct {
 
 // Forecast contains AWS prediction bounds for a future period.
 type Forecast struct {
+	Target     identity.TargetID
 	Period     Period
 	Mean       Money
 	LowerBound Money
@@ -112,3 +118,6 @@ func costLess(left, right Cost) bool {
 
 	return left.Period.Start().Before(right.Period.Start())
 }
+
+// Less exposes deterministic cost ordering to aggregate snapshots.
+func Less(left, right Cost) bool { return costLess(left, right) }

@@ -24,6 +24,8 @@ import (
 	"github.com/sakuya1998/aws-cost-exporter/internal/collector/account"
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 	"github.com/sakuya1998/aws-cost-exporter/internal/metrics"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
 	"github.com/sakuya1998/aws-cost-exporter/internal/version"
@@ -69,6 +71,24 @@ func TestScrapeLatencyBaselineUnderFifteenSeconds(t *testing.T) {
 	}
 }
 
+func TestSnapshotTraversalAllocationsDoNotGrowWithSeries(t *testing.T) {
+	small := accountSeriesSnapshot(t, 1, 1)
+	large := accountSeriesSnapshot(t, 20, 500)
+	allocations := func(value snapshot.Snapshot) float64 {
+		return testing.AllocsPerRun(10, func() {
+			total := 0.0
+			value.ForEachCost(func(item cost.Cost) { total += item.Amount.Amount() })
+			if total < 0 {
+				t.Fatal("unreachable")
+			}
+		})
+	}
+	smallAllocs, largeAllocs := allocations(small), allocations(large)
+	if largeAllocs > smallAllocs+1 {
+		t.Fatalf("snapshot traversal allocations grew with series: small=%v large=%v", smallAllocs, largeAllocs)
+	}
+}
+
 func BenchmarkMetricsExposition1000Series(b *testing.B) {
 	registry := newBenchRegistry(b)
 	b.ReportAllocs()
@@ -85,8 +105,8 @@ func TestStartupRefreshMatchesQueryPaginationBudget(t *testing.T) {
 	baseURL := runPerfExporter(t, budgetHandler(t, &usage, &forecast), true)
 	awaitPerfHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
 		return code == http.StatusOK &&
-			strings.Contains(body, "aws_cost_exporter_aws_api_requests_total{operation=\"GetCostAndUsage\",status=\"success\"} 8\n") &&
-			strings.Contains(body, "aws_cost_exporter_aws_api_requests_total{operation=\"GetCostForecast\",status=\"success\"} 1\n")
+			strings.Contains(body, "aws_cost_exporter_aws_api_requests_total{operation=\"GetCostAndUsage\",status=\"success\",target=\"perf\"} 8\n") &&
+			strings.Contains(body, "aws_cost_exporter_aws_api_requests_total{operation=\"GetCostForecast\",status=\"success\",target=\"perf\"} 1\n")
 	})
 	if usage.Load() != 8 || forecast.Load() != 1 {
 		t.Fatalf("usage=%d forecast=%d", usage.Load(), forecast.Load())
@@ -116,11 +136,11 @@ func (reader *budgetReader) ReadCosts(_ context.Context, query ports.CostQuery) 
 }
 
 type benchStore struct {
-	snapshot cost.Snapshot
-	statuses map[string]ports.CollectorStatus
+	snapshot snapshot.Snapshot
+	statuses map[identity.CollectorID]ports.CollectorStatus
 }
 
-func (store *benchStore) Snapshot() cost.Snapshot { return store.snapshot }
+func (store *benchStore) Snapshot() snapshot.Snapshot { return store.snapshot }
 func (store *benchStore) Load() ports.SnapshotView {
 	return ports.SnapshotView{Snapshot: store.snapshot, Collectors: store.statuses}
 }
@@ -131,12 +151,19 @@ func (clock fixedClock) Now() time.Time { return clock.instant }
 
 func newBenchRegistry(tb testing.TB) *prometheus.Registry {
 	tb.Helper()
-	store := &benchStore{snapshot: accountSeriesSnapshot(tb, 1000), statuses: map[string]ports.CollectorStatus{
-		"total": {Up: true, Series: 2}, "account": {Up: true, Series: 2000}, "forecast": {Up: true, Series: 3},
-	}}
+	store := &benchStore{snapshot: accountSeriesSnapshot(tb, 20, 500), statuses: make(map[identity.CollectorID]ports.CollectorStatus)}
+	ids := make([]identity.CollectorID, 0, 60)
+	for targetIndex := range 20 {
+		target := identity.TargetID(fmt.Sprintf("target-%02d", targetIndex))
+		for _, name := range []string{"total", "account", "forecast"} {
+			id := identity.CollectorID{Target: target, Name: name}
+			ids = append(ids, id)
+			store.statuses[id] = ports.CollectorStatus{Up: true, Series: 1003}
+		}
+	}
 	registry := prometheus.NewRegistry()
 	costCollector, _ := metrics.NewCostCollector(store)
-	exporter, _ := metrics.NewExporter(store, fixedClock{time.Unix(1_700_000_000, 0)}, version.Info{Version: "bench"}, []string{"total", "account", "forecast"})
+	exporter, _ := metrics.NewExporter(store, fixedClock{time.Unix(1_700_000_000, 0)}, version.Info{Version: "bench"}, ids)
 	registry.MustRegister(costCollector, exporter)
 	return registry
 }
@@ -159,7 +186,7 @@ func sumAmounts(values []cost.Cost) float64 {
 	return total
 }
 
-func accountSeriesSnapshot(tb testing.TB, perWindow int) cost.Snapshot {
+func accountSeriesSnapshot(tb testing.TB, targets, perWindow int) snapshot.Snapshot {
 	tb.Helper()
 	reference := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
 	day, month := cost.DayContaining(reference), cost.MonthContaining(reference)
@@ -168,29 +195,34 @@ func accountSeriesSnapshot(tb testing.TB, perWindow int) cost.Snapshot {
 		tb.Fatal(err)
 	}
 	var costs []cost.Cost
-	for index := range perWindow {
+	var forecasts []cost.Forecast
+	for targetIndex := range targets {
+		target := identity.TargetID(fmt.Sprintf("target-%02d", targetIndex))
+		for index := range perWindow {
+			for _, item := range []struct {
+				window cost.Window
+				period cost.Period
+			}{{cost.WindowDaily, day}, {cost.WindowMonthToDate, mtd}} {
+				amount, _ := cost.NewMoney(float64(index+1), "USD")
+				dimension, _ := cost.NewDimension(cost.DimensionAccount, fmt.Sprintf("%012d", index+1))
+				costs = append(costs, cost.Cost{Target: target, Window: item.window, Period: item.period, Dimension: dimension, Amount: amount})
+			}
+		}
 		for _, item := range []struct {
 			window cost.Window
 			period cost.Period
 		}{{cost.WindowDaily, day}, {cost.WindowMonthToDate, mtd}} {
-			amount, _ := cost.NewMoney(float64(index+1), "USD")
-			dimension, _ := cost.NewDimension(cost.DimensionAccount, fmt.Sprintf("%012d", index+1))
-			costs = append(costs, cost.Cost{Window: item.window, Period: item.period, Dimension: dimension, Amount: amount})
+			amount, _ := cost.NewMoney(999, "USD")
+			dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
+			costs = append(costs, cost.Cost{Target: target, Window: item.window, Period: item.period, Dimension: dimension, Amount: amount})
 		}
+		mean, _ := cost.NewMoney(500, "USD")
+		lower, _ := cost.NewMoney(400, "USD")
+		upper, _ := cost.NewMoney(600, "USD")
+		forecastPeriod, _ := cost.NewPeriod(day.End(), month.End())
+		forecasts = append(forecasts, cost.Forecast{Target: target, Period: forecastPeriod, Mean: mean, LowerBound: lower, UpperBound: upper})
 	}
-	for _, item := range []struct {
-		window cost.Window
-		period cost.Period
-	}{{cost.WindowDaily, day}, {cost.WindowMonthToDate, mtd}} {
-		amount, _ := cost.NewMoney(999, "USD")
-		dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
-		costs = append(costs, cost.Cost{Window: item.window, Period: item.period, Dimension: dimension, Amount: amount})
-	}
-	mean, _ := cost.NewMoney(500, "USD")
-	lower, _ := cost.NewMoney(400, "USD")
-	upper, _ := cost.NewMoney(600, "USD")
-	forecastPeriod, _ := cost.NewPeriod(day.End(), month.End())
-	return cost.NewSnapshot(costs, []cost.Forecast{{Period: forecastPeriod, Mean: mean, LowerBound: lower, UpperBound: upper}})
+	return snapshot.New(costs, forecasts, nil, nil)
 }
 
 func budgetHandler(t *testing.T, usage, forecast *atomic.Int32) http.HandlerFunc {
@@ -227,22 +259,34 @@ func runPerfExporter(t *testing.T, handler http.HandlerFunc, allCollectors bool)
 	t.Setenv("AWS_ACCESS_KEY_ID", "perf")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "perf")
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	fakeAWS := httptest.NewServer(handler)
+	fakeAWS := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		if strings.Contains(string(body), "Action=GetCallerIdentity") {
+			writer.Header().Set("Content-Type", "text/xml")
+			_, _ = io.WriteString(writer, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><GetCallerIdentityResult><Account>444455556666</Account><Arn>arn:aws:iam::444455556666:user/perf</Arn><UserId>perf</UserId></GetCallerIdentityResult><ResponseMetadata><RequestId>request-id</RequestId></ResponseMetadata></GetCallerIdentityResponse>`)
+			return
+		}
+		request.Body = io.NopCloser(strings.NewReader(string(body)))
+		handler(writer, request)
+	}))
 	t.Cleanup(fakeAWS.Close)
 	listener, _ := net.Listen("tcp", "127.0.0.1:0")
 	address := listener.Addr().String()
 	_ = listener.Close()
 	value := config.Default()
+	value.AWS.Credentials.Sources = map[string]config.CredentialSourceConfig{"runtime": {Type: config.CredentialSourceDefaultChain}}
+	value.Targets = []config.TargetConfig{{Name: "perf", AccountID: "444455556666", Required: true, Credentials: config.TargetCredentialsConfig{Source: "runtime"}, CostExplorer: config.TargetCostExplorerConfig{Enabled: true}}}
 	value.Server.ListenAddress, value.Server.ShutdownTimeout = address, time.Second
-	value.AWS.EndpointURL, value.AWS.RequestTimeout = fakeAWS.URL, time.Second
+	value.AWS.Endpoints.STS, value.AWS.Endpoints.CostExplorer, value.AWS.RequestTimeout = fakeAWS.URL, fakeAWS.URL, time.Second
 	value.AWS.Retry.MaxAttempts, value.AWS.Retry.BaseDelay, value.AWS.Retry.MaxBackoff = 1, time.Millisecond, time.Millisecond
-	value.AWS.RateLimit.RequestsPerSecond, value.AWS.RateLimit.Burst = 1000, 10
-	value.CostExplorer.StartupRefresh, value.CostExplorer.JitterRatio = true, 0
+	value.AWS.RateLimit.GlobalRequestsPerSecond, value.AWS.RateLimit.GlobalBurst = 10, 5
+	value.AWS.RateLimit.TargetRequestsPerSecond, value.AWS.RateLimit.TargetBurst = 10, 5
+	value.Collection.StartupRefresh, value.Collection.JitterRatio = true, 0
 	value.Telemetry.IncludeGoCollector, value.Telemetry.IncludeProcessCollector = false, false
 	if allCollectors {
-		value.CostExplorer.Collectors.Total, value.CostExplorer.Collectors.Service = true, true
-		value.CostExplorer.Collectors.Region, value.CostExplorer.Collectors.Account = true, true
-		value.CostExplorer.Forecast.Enabled = true
+		value.Collection.CostExplorer.Collectors.Total, value.Collection.CostExplorer.Collectors.Service = true, true
+		value.Collection.CostExplorer.Collectors.Region, value.Collection.CostExplorer.Collectors.Account = true, true
+		value.Collection.CostExplorer.Collectors.Forecast = true
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

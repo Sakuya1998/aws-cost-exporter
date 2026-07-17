@@ -34,6 +34,22 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          {{- if or .Values.config.secretEnvRefs .Values.awsSharedConfig.existingSecret }}
+          env:
+            {{- if .Values.awsSharedConfig.existingSecret }}
+            - name: AWS_SHARED_CREDENTIALS_FILE
+              value: {{ printf "%s/credentials" .Values.awsSharedConfig.mountPath | quote }}
+            - name: AWS_CONFIG_FILE
+              value: {{ printf "%s/config" .Values.awsSharedConfig.mountPath | quote }}
+            {{- end }}
+            {{- range .Values.config.secretEnvRefs }}
+            - name: {{ .envName | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName | quote }}
+                  key: {{ .secretKey | quote }}
+            {{- end }}
+          {{- end }}
           {{- if .Values.livenessProbe.enabled }}
           livenessProbe:
             {{- omit .Values.livenessProbe "enabled" | toYaml | nindent 12 }}
@@ -49,6 +65,11 @@ spec:
               mountPath: /etc/aws-cost-exporter/config.yaml
               subPath: config.yaml
               readOnly: true
+            {{- if .Values.awsSharedConfig.existingSecret }}
+            - name: aws-shared-config
+              mountPath: {{ .Values.awsSharedConfig.mountPath | quote }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: config
           configMap:
@@ -56,3 +77,13 @@ spec:
             items:
               - key: config.yaml
                 path: config.yaml
+        {{- if .Values.awsSharedConfig.existingSecret }}
+        - name: aws-shared-config
+          secret:
+            secretName: {{ .Values.awsSharedConfig.existingSecret | quote }}
+            items:
+              - key: {{ .Values.awsSharedConfig.credentialsKey | quote }}
+                path: credentials
+              - key: {{ .Values.awsSharedConfig.configKey | quote }}
+                path: config
+        {{- end }}

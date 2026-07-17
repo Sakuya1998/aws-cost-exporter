@@ -32,14 +32,20 @@ requests and pushes to `master`.
 
 ## v0.2: Multi-account operation
 
+Status: in development on the v0.2 development branch.
+
 Goal: operate safely across explicit AWS account boundaries.
 - Discover optional account metadata through AWS Organizations.
-- Support multiple explicitly configured targets using AssumeRole and ExternalId.
+- Support multiple explicitly configured targets using named default-chain,
+  shared-profile, or environment-backed credential sources, with optional
+  AssumeRole and ExternalId.
 - Add AWS Budgets metrics without conflating budgets with observed cost.
-- Introduce configuration migration and deprecation mechanics.
-- Evaluate leader election or shared refresh coordination for high availability.
+- Replace the v0.1 configuration with one strict explicit multi-target schema.
+- Add mandatory target labels without dual v0.1 metric exposition.
+- Evaluate leader election or shared refresh coordination through an ADR; keep one replica in v0.2.
 
-Multi-account support must retain target-level failure isolation and must not
+Multi-account support must verify final credential account identity, retain
+target-level failure isolation, avoid credential values in YAML, and never
 require wildcard `sts:AssumeRole` permissions.
 
 ## v0.3: Commitment and detailed billing data

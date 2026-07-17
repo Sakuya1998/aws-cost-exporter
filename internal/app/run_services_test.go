@@ -13,6 +13,7 @@ import (
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/app"
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
 	"github.com/sakuya1998/aws-cost-exporter/internal/httpserver"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
 	"github.com/sakuya1998/aws-cost-exporter/internal/version"
@@ -28,15 +29,15 @@ func (blockingScheduler) Run(ctx context.Context) {
 type staticReader struct{}
 
 func (staticReader) Load() ports.SnapshotView {
-	return ports.SnapshotView{Collectors: map[string]ports.CollectorStatus{
-		"total": {LastSuccess: time.Unix(1, 0).UTC(), LastAttempt: time.Unix(1, 0).UTC(), Up: true},
+	return ports.SnapshotView{Collectors: map[identity.CollectorID]ports.CollectorStatus{
+		{Target: "payer", Name: "total"}: {LastSuccess: time.Unix(1, 0).UTC(), LastAttempt: time.Unix(1, 0).UTC(), Up: true, Freshness: ports.FreshnessFresh},
 	}}
 }
 
 func TestRunServicesTimesOutWaitingForScheduler(t *testing.T) {
 	value := config.Default()
 	value.Server.ShutdownTimeout = 50 * time.Millisecond
-	server, err := httpserver.New(value.Server, prometheus.NewRegistry(), staticReader{}, []string{"total"}, version.Info{})
+	server, err := httpserver.New(value.Server, prometheus.NewRegistry(), staticReader{}, []identity.CollectorID{{Target: "payer", Name: "total"}}, version.Info{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ func TestRunServicesTimesOutWaitingForScheduler(t *testing.T) {
 func TestRunServicesTimesOutWhenServerExitsFirst(t *testing.T) {
 	value := config.Default()
 	value.Server.ShutdownTimeout = 50 * time.Millisecond
-	server, err := httpserver.New(value.Server, prometheus.NewRegistry(), staticReader{}, []string{"total"}, version.Info{})
+	server, err := httpserver.New(value.Server, prometheus.NewRegistry(), staticReader{}, []identity.CollectorID{{Target: "payer", Name: "total"}}, version.Info{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestRunServicesTimesOutWhenServerExitsFirst(t *testing.T) {
 func TestRunServicesInvokesShutdownTimeoutCallback(t *testing.T) {
 	value := config.Default()
 	value.Server.ShutdownTimeout = 20 * time.Millisecond
-	server, err := httpserver.New(value.Server, prometheus.NewRegistry(), staticReader{}, []string{"total"}, version.Info{})
+	server, err := httpserver.New(value.Server, prometheus.NewRegistry(), staticReader{}, []identity.CollectorID{{Target: "payer", Name: "total"}}, version.Info{})
 	if err != nil {
 		t.Fatal(err)
 	}

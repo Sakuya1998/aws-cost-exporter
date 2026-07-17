@@ -84,10 +84,10 @@ func TestSmokeConfigDisablesAWSStartupDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load smoke config: %v", err)
 	}
-	if value.AWS.Profile != "" {
-		t.Fatalf("smoke AWS profile = %q, want empty", value.AWS.Profile)
+	if source := value.AWS.Credentials.Sources["runtime"]; source.Type != appconfig.CredentialSourceDefaultChain {
+		t.Fatalf("smoke credential source = %#v, want default_chain", source)
 	}
-	if value.CostExplorer.StartupRefresh {
+	if value.Collection.StartupRefresh {
 		t.Fatal("smoke config must disable startup refresh")
 	}
 }
@@ -130,7 +130,6 @@ func writeSmokeConfig(t *testing.T, root string) string {
 		old string
 		new string
 	}{
-		{`profile: "default"`, `profile: ""`},
 		{"startup_refresh: true", "startup_refresh: false"},
 	} {
 		if !strings.Contains(content, replacement.old) {

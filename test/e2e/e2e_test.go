@@ -31,6 +31,9 @@ func TestBinaryReadinessMetricsDebugAndTermination(t *testing.T) {
 	var awsCalls atomic.Int32
 	fakeAWS := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		awsCalls.Add(1)
+		if serveCallerIdentity(writer, request) {
+			return
+		}
 		if !strings.HasSuffix(request.Header.Get("X-Amz-Target"), ".GetCostAndUsage") {
 			t.Errorf("unexpected AWS target %q", request.Header.Get("X-Amz-Target"))
 		}
@@ -116,6 +119,9 @@ func TestBinaryPublishesServiceAndTotalMetrics(t *testing.T) {
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	fakeAWS := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveCallerIdentity(writer, request) {
+			return
+		}
 		if !strings.HasSuffix(request.Header.Get("X-Amz-Target"), ".GetCostAndUsage") {
 			t.Errorf("unexpected AWS target %q", request.Header.Get("X-Amz-Target"))
 		}
@@ -181,8 +187,8 @@ func TestBinaryPublishesServiceAndTotalMetrics(t *testing.T) {
 	awaitStatus(t, baseURL+"/ready", http.StatusOK)
 	metrics := fetch(t, baseURL+"/metrics")
 	for _, fragment := range []string{
-		"aws_cost_daily_amount{currency=\"USD\"} 11",
-		"aws_cost_service_daily_amount{aws_service=\"Amazon EC2\",currency=\"USD\"} 5",
+		"aws_cost_daily_amount{currency=\"USD\",target=\"e2e\"} 11",
+		"aws_cost_service_daily_amount{aws_service=\"Amazon EC2\",currency=\"USD\",target=\"e2e\"} 5",
 	} {
 		if !strings.Contains(metrics, fragment) {
 			t.Fatalf("metrics missing %q\n%s", fragment, metrics)
@@ -235,34 +241,49 @@ func writeConfig(t *testing.T, address, endpoint string) string {
   listen_address: %q
   shutdown_timeout: 1s
 aws:
-  endpoint_url: %q
   request_timeout: 5s
+  credentials:
+    sources:
+      runtime:
+        type: default_chain
+  endpoints:
+    sts: %q
+    cost_explorer: %q
   retry:
     max_attempts: 1
     base_delay: 1ms
     max_backoff: 5ms
   rate_limit:
-    requests_per_second: 1
-    burst: 5
-cost_explorer:
+    global_requests_per_second: 1
+    global_burst: 5
+    target_requests_per_second: 1
+    target_burst: 5
+targets:
+  - name: e2e
+    account_id: "444455556666"
+    required: true
+    credentials:
+      source: runtime
+    cost_explorer:
+      enabled: true
+collection:
   startup_refresh: true
   jitter_ratio: 0
-  forecast:
-    enabled: false
-  collectors:
-    total: true
-    service: false
-    region: false
-    account: false
-telemetry:
-  include_go_collector: false
-  include_process_collector: false
-scheduler:
   failure_backoff:
     initial: 10ms
     max: 50ms
     multiplier: 2
-`, address, endpoint)
+  cost_explorer:
+    collectors:
+      total: true
+      service: false
+      region: false
+      account: false
+      forecast: false
+telemetry:
+  include_go_collector: false
+  include_process_collector: false
+`, address, endpoint, endpoint)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -276,39 +297,65 @@ func writeMultiCollectorConfig(t *testing.T, address, endpoint string) string {
   listen_address: %q
   shutdown_timeout: 1s
 aws:
-  endpoint_url: %q
   request_timeout: 5s
+  credentials:
+    sources:
+      runtime:
+        type: default_chain
+  endpoints:
+    sts: %q
+    cost_explorer: %q
   retry:
     max_attempts: 1
     base_delay: 1ms
     max_backoff: 5ms
   rate_limit:
-    requests_per_second: 1
-    burst: 5
-cost_explorer:
+    global_requests_per_second: 1
+    global_burst: 5
+    target_requests_per_second: 1
+    target_burst: 5
+targets:
+  - name: e2e
+    account_id: "444455556666"
+    required: true
+    credentials:
+      source: runtime
+    cost_explorer:
+      enabled: true
+collection:
   startup_refresh: true
   jitter_ratio: 0
-  forecast:
-    enabled: false
-  collectors:
-    total: true
-    service: true
-    region: false
-    account: false
-telemetry:
-  include_go_collector: false
-  include_process_collector: false
-scheduler:
   failure_backoff:
     initial: 10ms
     max: 50ms
     multiplier: 2
-`, address, endpoint)
+  cost_explorer:
+    collectors:
+      total: true
+      service: true
+      region: false
+      account: false
+      forecast: false
+telemetry:
+  include_go_collector: false
+  include_process_collector: false
+`, address, endpoint, endpoint)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+func serveCallerIdentity(writer http.ResponseWriter, request *http.Request) bool {
+	body, _ := io.ReadAll(request.Body)
+	if !strings.Contains(string(body), "Action=GetCallerIdentity") {
+		request.Body = io.NopCloser(bytes.NewReader(body))
+		return false
+	}
+	writer.Header().Set("Content-Type", "text/xml")
+	_, _ = io.WriteString(writer, `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><GetCallerIdentityResult><Account>444455556666</Account><Arn>arn:aws:iam::444455556666:user/e2e</Arn><UserId>e2e</UserId></GetCallerIdentityResult><ResponseMetadata><RequestId>request-id</RequestId></ResponseMetadata></GetCallerIdentityResponse>`)
+	return true
 }
 
 func assertGoldenMetrics(t *testing.T, body string) {

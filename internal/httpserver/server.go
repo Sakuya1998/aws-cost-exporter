@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
 	"github.com/sakuya1998/aws-cost-exporter/internal/version"
 )
@@ -38,7 +39,7 @@ type Server struct {
 }
 
 // New validates dependencies and constructs an isolated HTTP server.
-func New(value config.ServerConfig, gatherer prometheus.Gatherer, reader ReadinessReader, required []string, build version.Info) (*Server, error) {
+func New(value config.ServerConfig, gatherer prometheus.Gatherer, reader ReadinessReader, required []identity.CollectorID, build version.Info) (*Server, error) {
 	if isNil(gatherer) || isNil(reader) || len(required) == 0 {
 		return nil, ErrInvalidConfig
 	}
@@ -46,15 +47,14 @@ func New(value config.ServerConfig, gatherer prometheus.Gatherer, reader Readine
 		return nil, ErrInvalidConfig
 	}
 	metricsTimeout := value.WriteTimeout / 2
-	names := make([]string, 0, len(required))
-	known := make(map[string]struct{}, len(required))
-	for _, name := range required {
-		name = strings.TrimSpace(name)
-		if _, duplicate := known[name]; name == "" || duplicate {
+	ids := make([]identity.CollectorID, 0, len(required))
+	known := make(map[identity.CollectorID]struct{}, len(required))
+	for _, id := range required {
+		if _, duplicate := known[id]; !id.Valid() || duplicate {
 			return nil, ErrInvalidConfig
 		}
-		known[name] = struct{}{}
-		names = append(names, name)
+		known[id] = struct{}{}
+		ids = append(ids, id)
 	}
 	metrics := getOnly(promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{
 		Timeout: metricsTimeout, MaxRequestsInFlight: value.MaxInFlight,
@@ -64,7 +64,7 @@ func New(value config.ServerConfig, gatherer prometheus.Gatherer, reader Readine
 		writeJSON(response, request, http.StatusOK, statusResponse{Status: "ok"})
 	}))
 	ready := getOnly(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		code, payload := readiness(reader.Load(), names)
+		code, payload := readiness(reader.Load(), ids)
 		writeJSON(response, request, code, payload)
 	}))
 	versionHandler := getOnly(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -136,9 +136,9 @@ type statusResponse struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-func readiness(view ports.SnapshotView, required []string) (int, statusResponse) {
-	for _, name := range required {
-		status, exists := view.Collectors[name]
+func readiness(view ports.SnapshotView, required []identity.CollectorID) (int, statusResponse) {
+	for _, id := range required {
+		status, exists := view.Collectors[id]
 		if !exists || status.LastSuccess.IsZero() {
 			return http.StatusServiceUnavailable, statusResponse{Status: "not_ready", Reason: "missing"}
 		}
