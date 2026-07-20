@@ -1,0 +1,51 @@
+rule_files:
+  - ../../rules/prometheus/aws-cost-exporter.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: recovered Cost Explorer throttles are observable
+    interval: 1m
+    input_series:
+      - series: 'aws_cost_exporter_aws_api_retries_total{job="exporter",instance="localhost:8080",target="payer",operation="GetCostAndUsage",reason="throttle"}'
+        values: '0+0x4 1+1x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: AWSCostExplorerThrottleSustained
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: exporter
+              instance: localhost:8080
+              target: payer
+            exp_annotations:
+              summary: Cost Explorer throttling is sustained
+              description: Throttled Cost Explorer requests on localhost:8080 indicate quota pressure or overly aggressive refresh settings.
+
+  - name: Cost Explorer pagination excludes other AWS APIs
+    interval: 1m
+    input_series:
+      - series: 'aws_cost_exporter_pagination_pages_total{job="exporter",instance="localhost:8080",target="payer",operation="DescribeBudgets"}'
+        values: '0+2x90'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: AWSCostExplorerPaginationSpike
+        exp_alerts: []
+
+  - name: Cost Explorer pagination threshold fires
+    interval: 1m
+    input_series:
+      - series: 'aws_cost_exporter_pagination_pages_total{job="exporter",instance="localhost:8080",target="payer",operation="GetCostAndUsage"}'
+        values: '0+2x90'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: AWSCostExplorerPaginationSpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: exporter
+              instance: localhost:8080
+              target: payer
+            exp_annotations:
+              summary: Cost Explorer pagination rate is unusually high
+              description: Pagination page reads on localhost:8080 exceed the deployment threshold. Review filters, max_pages, and account size.

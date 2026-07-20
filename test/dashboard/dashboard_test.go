@@ -57,6 +57,14 @@ func TestDashboardContainsRequiredPanelsAndVariables(t *testing.T) {
 			t.Errorf("variable %s is missing label_values/includeAll", name)
 		}
 	}
+	for _, name := range []string{"job", "instance", "target"} {
+		if !strings.Contains(variables[name].Query.Query, "aws_cost_exporter_collector_up") {
+			t.Errorf("base variable %s depends on an optional business collector: %s", name, variables[name].Query.Query)
+		}
+	}
+	if !strings.Contains(variables["currency"].Query.Query, `__name__=~"aws_cost_.*_amount|aws_budget_.*_amount"`) {
+		t.Errorf("currency variable does not discover all monetary metrics: %s", variables["currency"].Query.Query)
+	}
 	required := map[string]string{
 		"Today accumulated": "stat", "Month to date": "stat",
 		"Estimated month end": "stat", "Remaining-month forecast": "stat",
@@ -128,6 +136,9 @@ func TestDashboardPromQLUsesOnlyRealCurrencySafeMetrics(t *testing.T) {
 	serialized, _ := json.Marshal(value)
 	if !strings.Contains(string(serialized), "increase(aws_cost_exporter_dimension_overflow_values_total") {
 		t.Error("overflow counter is not queried with increase")
+	}
+	if !strings.Contains(string(serialized), `status=~\"error|throttle\"`) {
+		t.Error("AWS API error ratio omits final throttling failures")
 	}
 }
 

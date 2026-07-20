@@ -114,9 +114,13 @@ func TestStartupRefreshMatchesQueryPaginationBudget(t *testing.T) {
 }
 
 func TestMetricsScrapeDoesNotCallAWS(t *testing.T) {
-	var calls atomic.Int32
-	baseURL := runPerfExporter(t, func(_ http.ResponseWriter, _ *http.Request) { calls.Add(1) }, true)
-	awaitPerfHTTP(t, baseURL+"/metrics", func(code int, _ string) bool { return code == http.StatusOK })
+	var calls, usage, forecast atomic.Int32
+	respond := budgetHandler(t, &usage, &forecast)
+	baseURL := runPerfExporter(t, func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		respond(writer, request)
+	}, true)
+	awaitPerfHTTP(t, baseURL+"/ready", func(code int, _ string) bool { return code == http.StatusOK })
 	before := calls.Load()
 	awaitPerfHTTP(t, baseURL+"/metrics", func(code int, _ string) bool { return code == http.StatusOK })
 	if calls.Load() != before {

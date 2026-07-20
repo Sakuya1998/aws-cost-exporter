@@ -67,6 +67,7 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 		"linux/amd64,linux/arm64",
 		"--provenance=mode=max", "--sbom=true", "containerimage.digest",
 		`metadata_file="$RUNNER_TEMP/image-metadata.json"`, `--metadata-file "$metadata_file"`,
+		"TRIVY_VERSION=0.72.0", "bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea",
 		"trivy image", "cosign sign --yes", "helm package", "helm push",
 		"charts/aws-cost-exporter", "GITHUB_REF_NAME", "!= *-*",
 		`'.["containerimage.digest"]'`, `--app-version "$VERSION"`, `"oci://$CHART_REPOSITORY"`,
@@ -78,6 +79,7 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"security-events: write", "actions: write", "--metadata-file image-metadata.json",
+		"raw.githubusercontent.com/aquasecurity/trivy/main", "install.sh | sh",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Errorf("release workflow grants unnecessary permission %q", forbidden)

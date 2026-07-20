@@ -129,6 +129,38 @@ func TestFactoryLoadsIndependentProfileAndStaticSources(t *testing.T) {
 	}
 }
 
+func TestFactoryStaticSourceIgnoresMalformedProcessAWSConfig(t *testing.T) {
+	t.Setenv("STATIC_ACCESS", "static-access")
+	t.Setenv("STATIC_SECRET", "static-secret")
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte("[profile broken\nregion = nowhere\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_CONFIG_FILE", path)
+	t.Setenv("AWS_PROFILE", "broken")
+	value := config.Default().AWS
+	value.Credentials.Sources = map[string]config.CredentialSourceConfig{
+		"static": {
+			Type: config.CredentialSourceStaticEnv, AccessKeyIDEnv: "STATIC_ACCESS", SecretAccessKeyEnv: "STATIC_SECRET",
+		},
+	}
+	factory, err := New(context.Background(), value, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := factory.ValidateSources(); err != nil {
+		t.Fatalf("ValidateSources()=%v", err)
+	}
+	clients, err := factory.ForTarget(config.TargetConfig{Name: "static", AccountID: "111122223333", Credentials: config.TargetCredentialsConfig{Source: "static"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := clients.CostExplorer.Options().Credentials.Retrieve(context.Background())
+	if err != nil || resolved.AccessKeyID != "static-access" {
+		t.Fatalf("Retrieve()=%q/%v", resolved.AccessKeyID, err)
+	}
+}
+
 func TestFactoryKeepsUnavailableProfileTargetIsolated(t *testing.T) {
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "missing-credentials"))
@@ -156,7 +188,8 @@ func TestFactoryKeepsUnavailableProfileTargetIsolated(t *testing.T) {
 
 func TestTargetVerifierSingleFlightAndMismatch(t *testing.T) {
 	api := &identityStub{account: "111122223333"}
-	verifier := &targetVerifier{client: api, target: "payer", accountID: "111122223333", failureTTL: time.Second, successTTL: time.Hour}
+	provider := &mutableCredentialsProvider{credentials: aws.Credentials{AccessKeyID: "access-a", SecretAccessKey: "secret", SessionToken: "token-a", Source: "test"}}
+	verifier := &targetVerifier{client: api, credentials: provider, target: "payer", accountID: "111122223333", failureTTL: time.Second, successTTL: time.Hour}
 	var group sync.WaitGroup
 	for range 8 {
 		group.Add(1)
@@ -177,12 +210,33 @@ func TestTargetVerifierSingleFlightAndMismatch(t *testing.T) {
 	if err := verifier.Verify(context.Background()); err != nil || api.calls.Load() != 2 {
 		t.Fatalf("expired Verify()=%v calls=%d, want revalidation", err, api.calls.Load())
 	}
-	mismatch := &targetVerifier{client: api, target: "other", accountID: "999900001111", failureTTL: time.Second}
+	provider.Set(aws.Credentials{AccessKeyID: "access-a", SecretAccessKey: "secret", SessionToken: "token-b", Source: "test"})
+	if err := verifier.Verify(context.Background()); err != nil || api.calls.Load() != 3 {
+		t.Fatalf("rotated Verify()=%v calls=%d, want credential-bound revalidation", err, api.calls.Load())
+	}
+	mismatch := &targetVerifier{client: api, credentials: provider, target: "other", accountID: "999900001111", failureTTL: time.Second}
 	err := mismatch.Verify(context.Background())
 	safe, ok := err.(interface{ SafeKind() string })
 	if err == nil || !strings.Contains(err.Error(), "does not match") || !ok || safe.SafeKind() != "validation" {
 		t.Fatalf("mismatch Verify()=%v", err)
 	}
+}
+
+type mutableCredentialsProvider struct {
+	mu          sync.Mutex
+	credentials aws.Credentials
+}
+
+func (provider *mutableCredentialsProvider) Retrieve(context.Context) (aws.Credentials, error) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	return provider.credentials, nil
+}
+
+func (provider *mutableCredentialsProvider) Set(value aws.Credentials) {
+	provider.mu.Lock()
+	provider.credentials = value
+	provider.mu.Unlock()
 }
 
 type identityStub struct {

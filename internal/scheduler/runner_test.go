@@ -77,7 +77,7 @@ func TestRunnerEnforcesGlobalConcurrencyAndTargetSingleFlight(t *testing.T) {
 	}
 	observer := newFakeObserver()
 	store := newFakeStore()
-	runner, _ := NewJobs([]Job{{Collector: makeOne("a"), Interval: time.Hour, StartupRefresh: true}, {Collector: makeOne("b"), Interval: time.Hour, StartupRefresh: true}}, store, clock, nil, Config{JitterRatio: 0, MaxConcurrency: 1, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer})
+	runner, _ := NewJobs([]Job{{Collector: makeOne("a"), Interval: time.Hour, StartupRefresh: true}, {Collector: makeOne("b"), Interval: time.Hour, StartupRefresh: true}}, store, clock, nil, Config{JitterRatio: 0, MaxConcurrency: 1, Backoff: BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { runner.Run(ctx); close(done) }()
@@ -104,6 +104,85 @@ func TestRunnerEnforcesGlobalConcurrencyAndTargetSingleFlight(t *testing.T) {
 	}
 }
 
+func TestRunnerSerializesCollectorsWithinOneTarget(t *testing.T) {
+	started := make(chan identity.CollectorID, 2)
+	release := make(chan struct{}, 2)
+	makeOne := func(name string) *fakeCollector {
+		return newCollector("shared", name, func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+			started <- id("shared", name)
+			<-release
+			return snapshot.PartialSnapshot{}, nil
+		})
+	}
+	runner, err := NewJobs([]Job{
+		{Collector: makeOne("total"), Interval: time.Hour, StartupRefresh: true},
+		{Collector: makeOne("service"), Interval: time.Hour, StartupRefresh: true},
+	}, newFakeStore(), newFakeClock(), nil, validSchedulerConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { runner.Run(ctx); close(done) }()
+	receive(t, started)
+	select {
+	case second := <-started:
+		t.Fatalf("same-target collector started concurrently: %v", second)
+	case <-time.After(50 * time.Millisecond):
+	}
+	release <- struct{}{}
+	receive(t, started)
+	release <- struct{}{}
+	cancel()
+	receive(t, done)
+}
+
+func TestRunnerBoundsRetryableCollectorAttempts(t *testing.T) {
+	clock := newFakeClock()
+	calls := make(chan struct{}, 4)
+	collector := newCollector("payer", "total", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+		calls <- struct{}{}
+		return snapshot.PartialSnapshot{}, retryableTestError{}
+	})
+	config := validSchedulerConfig()
+	config.Backoff.MaxAttempts = 3
+	config.Backoff.Initial = time.Minute
+	config.Backoff.Max = 2 * time.Minute
+	runner, err := NewJobs([]Job{{Collector: collector, Interval: time.Hour, StartupRefresh: true}}, newFakeStore(), clock, nil, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { runner.Run(ctx); close(done) }()
+	receive(t, calls)
+	timers := []fakeTimer{receive(t, clock.timers), receive(t, clock.timers)}
+	var backoff fakeTimer
+	for _, timer := range timers {
+		if timer.delay == time.Minute {
+			backoff = timer
+		}
+	}
+	if backoff.fire == nil {
+		t.Fatalf("initial retry timer not found: %#v", timers)
+	}
+	backoff.fire <- clock.Now()
+	receive(t, calls)
+	secondBackoff := receive(t, clock.timers)
+	if secondBackoff.delay != 2*time.Minute {
+		t.Fatalf("second backoff=%s", secondBackoff.delay)
+	}
+	secondBackoff.fire <- clock.Now()
+	receive(t, calls)
+	select {
+	case timer := <-clock.timers:
+		t.Fatalf("retry budget exceeded with extra timer %s", timer.delay)
+	case <-time.After(50 * time.Millisecond):
+	}
+	cancel()
+	receive(t, done)
+}
+
 func TestRunnerFailureIsolationLoggingAndCancellation(t *testing.T) {
 	clock := newFakeClock()
 	store := newFakeStore()
@@ -115,7 +194,7 @@ func TestRunnerFailureIsolationLoggingAndCancellation(t *testing.T) {
 	healthy := newCollector("healthy-target", "total", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
 		return snapshot.PartialSnapshot{}, nil
 	})
-	runner, _ := NewJobs([]Job{{Collector: failing, Interval: time.Hour, StartupRefresh: true}, {Collector: healthy, Interval: time.Hour, StartupRefresh: true}}, store, clock, nil, Config{MaxConcurrency: 2, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer, Logger: slog.New(slog.NewJSONHandler(&logs, nil))})
+	runner, _ := NewJobs([]Job{{Collector: failing, Interval: time.Hour, StartupRefresh: true}, {Collector: healthy, Interval: time.Hour, StartupRefresh: true}}, store, clock, nil, Config{MaxConcurrency: 2, Backoff: BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer, Logger: slog.New(slog.NewJSONHandler(&logs, nil))})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { runner.Run(ctx); close(done) }()
@@ -140,7 +219,7 @@ func TestRunnerStopsCanceledCollectorAndClearsState(t *testing.T) {
 		<-ctx.Done()
 		return snapshot.PartialSnapshot{}, ctx.Err()
 	})
-	runner, _ := NewJobs([]Job{{Collector: collector, Interval: time.Hour, StartupRefresh: true}}, newFakeStore(), newFakeClock(), nil, Config{MaxConcurrency: 1, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer})
+	runner, _ := NewJobs([]Job{{Collector: collector, Interval: time.Hour, StartupRefresh: true}}, newFakeStore(), newFakeClock(), nil, Config{MaxConcurrency: 1, Backoff: BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { runner.Run(ctx); close(done) }()
@@ -180,7 +259,7 @@ func TestRunnerTreatsCachePublishErrorAsCollectorFailure(t *testing.T) {
 		return snapshot.PartialSnapshot{}, nil
 	})
 	runner, _ := NewJobs([]Job{{Collector: collector, Interval: time.Hour, StartupRefresh: true}}, store, newFakeClock(), nil, Config{
-		MaxConcurrency: 1, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer,
+		MaxConcurrency: 1, Backoff: BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -290,7 +369,7 @@ func (value *fakeObserver) ObserveCachePublishError(id identity.CollectorID, _ s
 }
 
 func validSchedulerConfig() Config {
-	return Config{JitterRatio: .1, MaxConcurrency: 2, Backoff: BackoffConfig{Initial: time.Minute, Max: time.Minute, Multiplier: 2}}
+	return Config{JitterRatio: .1, MaxConcurrency: 2, Backoff: BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: time.Minute, Multiplier: 2}}
 }
 func receive[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()

@@ -49,13 +49,6 @@ func Load(options Options) (Config, error) {
 	return result, nil
 }
 
-// Check verifies that all configured sources can be loaded.
-func Check(options Options) error {
-	_, err := Load(options)
-
-	return err
-}
-
 // registerDefaults recursively registers schema fields so AutomaticEnv can
 // discover environment-only overrides.
 func registerDefaults(source *viper.Viper, prefix string, value reflect.Value) {

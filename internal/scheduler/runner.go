@@ -51,9 +51,10 @@ type Config struct {
 }
 
 type BackoffConfig struct {
-	Initial    time.Duration
-	Max        time.Duration
-	Multiplier float64
+	MaxAttempts int
+	Initial     time.Duration
+	Max         time.Duration
+	Multiplier  float64
 }
 
 var ErrInvalidConfig = errors.New("invalid scheduler configuration")
@@ -66,6 +67,7 @@ type Runner struct {
 	random    func() float64
 	config    Config
 	semaphore chan struct{}
+	targets   map[identity.TargetID]chan struct{}
 	randomMu  sync.Mutex
 	runningMu sync.Mutex
 	running   map[identity.CollectorID]bool
@@ -87,11 +89,12 @@ func NewJobs(jobs []Job, store Store, clock Clock, random func() float64, config
 	backoff := config.Backoff
 	if len(jobs) == 0 || store == nil || clock == nil || config.MaxConcurrency <= 0 ||
 		config.JitterRatio < 0 || config.JitterRatio > 0.5 || math.IsNaN(config.JitterRatio) || math.IsInf(config.JitterRatio, 0) ||
-		backoff.Initial <= 0 || backoff.Max < backoff.Initial || backoff.Multiplier <= 1 || math.IsNaN(backoff.Multiplier) || math.IsInf(backoff.Multiplier, 0) {
+		backoff.MaxAttempts <= 0 || backoff.MaxAttempts > 10 || backoff.Initial <= 0 || backoff.Max < backoff.Initial || backoff.Multiplier <= 1 || math.IsNaN(backoff.Multiplier) || math.IsInf(backoff.Multiplier, 0) {
 		return nil, ErrInvalidConfig
 	}
 	known := make(map[identity.CollectorID]struct{}, len(jobs))
 	queues := make(map[identity.CollectorID]chan time.Time, len(jobs))
+	targets := make(map[identity.TargetID]chan struct{})
 	for _, job := range jobs {
 		if job.Collector == nil || job.Interval <= 0 || !job.Collector.ID().Valid() {
 			return nil, ErrInvalidConfig
@@ -102,13 +105,17 @@ func NewJobs(jobs []Job, store Store, clock Clock, random func() float64, config
 		}
 		known[id] = struct{}{}
 		queues[id] = make(chan time.Time, 1)
+		if targets[id.Target] == nil {
+			targets[id.Target] = make(chan struct{}, 1)
+		}
 	}
 	if random == nil {
 		random = rand.Float64
 	}
 	return &Runner{
 		jobs: append([]Job(nil), jobs...), store: store, clock: clock, random: random, config: config,
-		semaphore: make(chan struct{}, config.MaxConcurrency), running: make(map[identity.CollectorID]bool), queues: queues,
+		semaphore: make(chan struct{}, config.MaxConcurrency), targets: targets,
+		running: make(map[identity.CollectorID]bool), queues: queues,
 	}, nil
 }
 
@@ -117,7 +124,7 @@ func (runner *Runner) Run(ctx context.Context) {
 	runner.workers.Add(2 * len(runner.jobs))
 	for _, job := range runner.jobs {
 		go runner.schedule(ctx, job)
-		go runner.worker(ctx, job.Collector)
+		go runner.worker(ctx, job)
 	}
 	<-ctx.Done()
 	runner.workers.Wait()
@@ -165,14 +172,14 @@ func (runner *Runner) dispatch(id identity.CollectorID, reference time.Time) {
 	runner.queues[id] <- reference
 }
 
-func (runner *Runner) worker(ctx context.Context, collector Collector) {
-	id := collector.ID()
+func (runner *Runner) worker(ctx context.Context, job Job) {
+	id := job.Collector.ID()
 	defer runner.workers.Done()
 	defer runner.clearRunning(id)
 	for {
 		select {
 		case reference := <-runner.queues[id]:
-			runner.collect(ctx, reference, collector)
+			runner.collect(ctx, reference, job)
 			runner.clearRunning(id)
 		case <-ctx.Done():
 			return
@@ -180,18 +187,26 @@ func (runner *Runner) worker(ctx context.Context, collector Collector) {
 	}
 }
 
-func (runner *Runner) collect(ctx context.Context, reference time.Time, collector Collector) {
+func (runner *Runner) collect(ctx context.Context, reference time.Time, job Job) {
 	delay := runner.config.Backoff.Initial
-	id := collector.ID()
-	for {
+	id := job.Collector.ID()
+	for attempt := 1; attempt <= runner.config.Backoff.MaxAttempts; attempt++ {
+		target := runner.targets[id.Target]
 		select {
-		case runner.semaphore <- struct{}{}:
+		case target <- struct{}{}:
 		case <-ctx.Done():
 			return
 		}
+		select {
+		case runner.semaphore <- struct{}{}:
+		case <-ctx.Done():
+			<-target
+			return
+		}
 		started := runner.clock.Now()
-		partial, err := collector.Collect(ctx, reference)
+		partial, err := job.Collector.Collect(ctx, reference)
 		<-runner.semaphore
+		<-target
 		if err == nil {
 			if publishErr := runner.store.Publish(id, partial); publishErr != nil {
 				runner.observeCachePublishError(id, "publish", publishErr)
@@ -220,7 +235,7 @@ func (runner *Runner) collect(ctx context.Context, reference time.Time, collecto
 		if recordErr := runner.store.RecordFailure(id); recordErr != nil {
 			runner.observeCachePublishError(id, "record_failure", recordErr)
 		}
-		if !canRetry {
+		if !canRetry || attempt == runner.config.Backoff.MaxAttempts {
 			return
 		}
 		backoff := runner.clock.NewTimer(delay)

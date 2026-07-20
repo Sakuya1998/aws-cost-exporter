@@ -2,6 +2,7 @@ package organizations
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -33,7 +34,7 @@ func (value *fakeOrganizations) ListAccounts(_ context.Context, input *awsorgani
 
 func TestReaderPaginatesMapsStateAndDropsEmail(t *testing.T) {
 	api := &fakeOrganizations{}
-	reader, err := New("payer", api, 3, nil, func(string) aws.Retryer { return aws.NopRetryer{} })
+	reader, err := New("payer", api, 3, Policy{SeriesLimit: 2}, nil, func(string) aws.Retryer { return aws.NopRetryer{} })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,11 +48,29 @@ func TestReaderPaginatesMapsStateAndDropsEmail(t *testing.T) {
 }
 
 func TestReaderRejectsDuplicateAccountAndInvalidConfig(t *testing.T) {
-	reader, _ := New("payer", &fakeOrganizations{duplicate: true}, 3, awscommon.DiscardObserver{}, func(string) aws.Retryer { return aws.NopRetryer{} })
+	reader, _ := New("payer", &fakeOrganizations{duplicate: true}, 3, Policy{SeriesLimit: 2}, awscommon.DiscardObserver{}, func(string) aws.Retryer { return aws.NopRetryer{} })
 	if _, err := reader.ReadAccounts(context.Background()); err == nil {
 		t.Fatal("accepted duplicate account")
 	}
-	if reader, err := New("", &fakeOrganizations{}, 1, nil, func(string) aws.Retryer { return aws.NopRetryer{} }); reader != nil || err == nil {
+	if reader, err := New("", &fakeOrganizations{}, 1, Policy{SeriesLimit: 1}, nil, func(string) aws.Retryer { return aws.NopRetryer{} }); reader != nil || err == nil {
 		t.Fatal("accepted empty target")
+	}
+}
+
+func TestReaderFiltersAllowlistBeforePublicationAndBoundsObservedMode(t *testing.T) {
+	reader, err := New("payer", &fakeOrganizations{}, 3, Policy{AccountIDs: []string{"222222222222"}, SeriesLimit: 1}, nil, func(string) aws.Retryer { return aws.NopRetryer{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := reader.ReadAccounts(context.Background())
+	if err != nil || len(values) != 1 || values[0].AccountID != "222222222222" {
+		t.Fatalf("allowlisted accounts=%#v err=%v", values, err)
+	}
+	bounded, err := New("payer", &fakeOrganizations{}, 3, Policy{SeriesLimit: 1}, nil, func(string) aws.Retryer { return aws.NopRetryer{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bounded.ReadAccounts(context.Background()); !errors.Is(err, ErrSeriesLimit) {
+		t.Fatalf("ReadAccounts()=%v, want ErrSeriesLimit", err)
 	}
 }

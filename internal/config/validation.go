@@ -93,6 +93,7 @@ func validateBase(value Config) error {
 		{nonFinite(value.Collection.JitterRatio), "collection.jitter_ratio", "must be finite"},
 		{value.Collection.JitterRatio < 0 || value.Collection.JitterRatio > 0.5, "collection.jitter_ratio", "must be between 0 and 0.5"},
 		{value.Collection.MaxConcurrency <= 0, "collection.max_concurrency", "must be positive"},
+		{value.Collection.FailureBackoff.MaxAttempts <= 0 || value.Collection.FailureBackoff.MaxAttempts > maxRetryAttempts, "collection.failure_backoff.max_attempts", "must be between 1 and 10"},
 		{value.Collection.FailureBackoff.Initial <= 0, "collection.failure_backoff.initial", "must be positive"},
 		{value.Collection.FailureBackoff.Max < value.Collection.FailureBackoff.Initial, "collection.failure_backoff.max", "must not be less than initial"},
 		{nonFinite(value.Collection.FailureBackoff.Multiplier), "collection.failure_backoff.multiplier", "must be finite"},

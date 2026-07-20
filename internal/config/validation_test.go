@@ -81,6 +81,7 @@ func TestValidateEnforcesV02Invariants(t *testing.T) {
 		{"global burst", "aws.rate_limit.global_burst", func(v *config.Config) { v.AWS.RateLimit.GlobalBurst = 6 }},
 		{"retry attempts", "aws.retry.max_attempts", func(v *config.Config) { v.AWS.Retry.MaxAttempts = 11 }},
 		{"refresh", "collection.refresh_interval", func(v *config.Config) { v.Collection.RefreshInterval = v.AWS.RequestTimeout }},
+		{"collector retry attempts", "collection.failure_backoff.max_attempts", func(v *config.Config) { v.Collection.FailureBackoff.MaxAttempts = 11 }},
 		{"jitter", "collection.jitter_ratio", func(v *config.Config) { v.Collection.JitterRatio = math.NaN() }},
 		{"backoff", "collection.failure_backoff.multiplier", func(v *config.Config) { v.Collection.FailureBackoff.Multiplier = math.Inf(1) }},
 		{"overflow whitespace", "collection.cost_explorer.dimensions.overflow_label", func(v *config.Config) { v.Collection.CostExplorer.Dimensions.OverflowLabel = " __other__ " }},

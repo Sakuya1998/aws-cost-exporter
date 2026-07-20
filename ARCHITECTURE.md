@@ -11,7 +11,7 @@ Prometheus scrapes never trigger AWS requests. Background collectors publish imm
 - `internal/domain` owns target identity, cost, budget, organization, and aggregate snapshot values.
 - `internal/ports` defines narrow application interfaces.
 - `internal/collector` maps reader ports to typed partial snapshots.
-- `internal/scheduler` owns per-job intervals, target-scoped single-flight, global concurrency, and refresh backoff.
+- `internal/scheduler` owns per-job intervals, target-scoped single-flight, one-at-a-time target execution, global concurrency, and bounded refresh backoff.
 - `internal/aws` owns SDK clients, AssumeRole, request attempts, pagination, mapping, and safe error classification.
 - `internal/cache/memory` owns copy-on-write partials keyed by `CollectorID` and atomic aggregate publication.
 - `internal/metrics` maps snapshots and bounded events to fixed Prometheus descriptors.
@@ -51,7 +51,7 @@ flowchart LR
   Metrics --> HTTP[HTTP server]
 ```
 
-One target failure updates only its `CollectorID` status and retains the last successful partial. Other targets continue refreshing and publishing.
+One target failure updates only its `CollectorID` status and retains the last successful partial. Other targets continue refreshing and publishing. Each scheduled run has a finite collector-attempt budget, and one target cannot consume multiple global scheduler slots at once.
 
 ## AWS request policy
 

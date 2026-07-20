@@ -195,9 +195,10 @@ type CollectionBudgetsConfig struct {
 
 // BackoffConfig controls refresh-level exponential backoff.
 type BackoffConfig struct {
-	Initial    time.Duration `mapstructure:"initial" yaml:"initial"`
-	Max        time.Duration `mapstructure:"max" yaml:"max"`
-	Multiplier float64       `mapstructure:"multiplier" yaml:"multiplier"`
+	MaxAttempts int           `mapstructure:"max_attempts" yaml:"max_attempts"`
+	Initial     time.Duration `mapstructure:"initial" yaml:"initial"`
+	Max         time.Duration `mapstructure:"max" yaml:"max"`
+	Multiplier  float64       `mapstructure:"multiplier" yaml:"multiplier"`
 }
 
 // CacheConfig controls snapshot freshness state.
@@ -236,7 +237,7 @@ func Default() Config {
 		Collection: CollectionConfig{
 			RefreshInterval: 6 * time.Hour, StartupRefresh: true, JitterRatio: 0.10,
 			MaxConcurrency: 4,
-			FailureBackoff: BackoffConfig{Initial: time.Minute, Max: 30 * time.Minute, Multiplier: 2},
+			FailureBackoff: BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: 30 * time.Minute, Multiplier: 2},
 			CostExplorer: CollectionCostExplorerConfig{
 				CostMetric: "UnblendedCost", MaxPages: 50, PredictionInterval: 80,
 				Collectors: CollectorsConfig{Total: true, Service: true, Region: true, Account: true, Forecast: true},
