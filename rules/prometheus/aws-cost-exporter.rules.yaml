@@ -29,7 +29,7 @@ groups:
 
       # Tune the threshold for large accounts with heavy pagination.
       - alert: AWSCostExplorerPaginationSpike
-        expr: sum by (job, instance, target) (increase(aws_cost_exporter_pagination_pages_total[1h])) > 100
+        expr: sum by (job, instance, target) (increase(aws_cost_exporter_pagination_pages_total{operation="GetCostAndUsage"}[1h])) > 100
         for: 15m
         labels:
           severity: warning
@@ -38,7 +38,7 @@ groups:
           description: Pagination page reads on {{ $labels.instance }} exceed the deployment threshold. Review filters, max_pages, and account size.
 
       - alert: AWSCostExplorerThrottleSustained
-        expr: sum by (job, instance, target) (rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])) > 0
+        expr: sum by (job, instance, target) (rate(aws_cost_exporter_aws_api_retries_total{operation=~"GetCostAndUsage|GetCostForecast",reason="throttle"}[15m])) > 0 or sum by (job, instance, target) (rate(aws_cost_exporter_aws_api_requests_total{operation=~"GetCostAndUsage|GetCostForecast",status="throttle"}[15m])) > 0
         for: 15m
         labels:
           severity: warning
@@ -47,13 +47,13 @@ groups:
           description: Throttled Cost Explorer requests on {{ $labels.instance }} indicate quota pressure or overly aggressive refresh settings.
 
       - alert: AWSDailyCostSpike
-        expr: aws_cost_daily_amount > 1.5 * avg_over_time(aws_cost_daily_amount[7d])
+        expr: aws_cost_daily_amount > 1.5 * avg_over_time(aws_cost_daily_amount[7d:1d] offset 1d)
         for: 2h
         labels:
           severity: warning
         annotations:
           summary: Daily AWS cost spike for {{ $labels.target }} in {{ $labels.currency }}
-          description: Current UTC billing-day cost exceeds 1.5 times its seven-day scrape-history average. Cost Explorer backfill can cause false positives.
+          description: Current UTC billing-day cost exceeds 1.5 times the same-time daily samples from the previous seven days. Cost Explorer backfill can cause false positives.
 
       # Budget alert example only; intentionally disabled by default.
       # Replace both currency and threshold for the deployment.

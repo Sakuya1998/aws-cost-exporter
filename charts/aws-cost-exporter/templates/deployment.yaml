@@ -1,3 +1,4 @@
+{{- include "aws-cost-exporter.validatePort" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,7 +33,7 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           {{- if or .Values.config.secretEnvRefs .Values.awsSharedConfig.existingSecret }}
           env:

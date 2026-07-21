@@ -50,11 +50,11 @@ func TestRulesContainSafeRecordingsAndAlerts(t *testing.T) {
 	requireAlert(t, alerts, "AWSCostExporterCollectorDown", "30m",
 		"aws_cost_exporter_collector_up == 0")
 	requireAlert(t, alerts, "AWSCostExplorerPaginationSpike", "15m",
-		`sum by (job, instance, target) (increase(aws_cost_exporter_pagination_pages_total[1h])) > 100`)
+		`sum by (job, instance, target) (increase(aws_cost_exporter_pagination_pages_total{operation="GetCostAndUsage"}[1h])) > 100`)
 	requireAlert(t, alerts, "AWSCostExplorerThrottleSustained", "15m",
-		`sum by (job, instance, target) (rate(aws_cost_exporter_aws_api_requests_total{status="throttle"}[15m])) > 0`)
+		`sum by (job, instance, target) (rate(aws_cost_exporter_aws_api_retries_total{operation=~"GetCostAndUsage|GetCostForecast",reason="throttle"}[15m])) > 0 or sum by (job, instance, target) (rate(aws_cost_exporter_aws_api_requests_total{operation=~"GetCostAndUsage|GetCostForecast",status="throttle"}[15m])) > 0`)
 	requireAlert(t, alerts, "AWSDailyCostSpike", "2h",
-		"aws_cost_daily_amount > 1.5 * avg_over_time(aws_cost_daily_amount[7d])")
+		"aws_cost_daily_amount > 1.5 * avg_over_time(aws_cost_daily_amount[7d:1d] offset 1d)")
 	if _, enabled := alerts["AWSMonthlyCostForecastAboveBudget"]; enabled {
 		t.Error("budget example must not be enabled by default")
 	}
@@ -106,6 +106,10 @@ func TestPromtoolCheckRules(t *testing.T) {
 	output, err := exec.Command(tool, "check", "rules", rulesPath()).CombinedOutput()
 	if err != nil {
 		t.Fatalf("promtool check rules: %v\n%s", err, output)
+	}
+	output, err = exec.Command(tool, "test", "rules", filepath.Join("promtool.test.yaml")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("promtool test rules: %v\n%s", err, output)
 	}
 }
 

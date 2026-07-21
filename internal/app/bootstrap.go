@@ -85,9 +85,10 @@ func Run(ctx context.Context, value config.Config, logger *slog.Logger) error {
 		JitterRatio:    value.Collection.JitterRatio,
 		MaxConcurrency: value.Collection.MaxConcurrency,
 		Backoff: scheduler.BackoffConfig{
-			Initial:    value.Collection.FailureBackoff.Initial,
-			Max:        value.Collection.FailureBackoff.Max,
-			Multiplier: value.Collection.FailureBackoff.Multiplier,
+			MaxAttempts: value.Collection.FailureBackoff.MaxAttempts,
+			Initial:     value.Collection.FailureBackoff.Initial,
+			Max:         value.Collection.FailureBackoff.Max,
+			Multiplier:  value.Collection.FailureBackoff.Multiplier,
 		},
 		Observer: telemetry, Logger: logger,
 	})
@@ -146,7 +147,14 @@ func buildJobs(value config.Config, factory *clientfactory.Factory, telemetry *a
 			}
 		}
 		if targetConfig.Organizations.Enabled {
-			reader, readerErr := organizationsapi.New(target, clients.Organizations, value.Collection.Organizations.MaxPages, telemetry, clients.Retryer)
+			reader, readerErr := organizationsapi.New(
+				target, clients.Organizations, value.Collection.Organizations.MaxPages,
+				organizationsapi.Policy{
+					AccountIDs:  targetConfig.Organizations.AccountIDs,
+					SeriesLimit: value.Collection.Organizations.SeriesLimit,
+				},
+				telemetry, clients.Retryer,
+			)
 			if readerErr != nil {
 				return nil, nil, readerErr
 			}

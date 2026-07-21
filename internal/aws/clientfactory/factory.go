@@ -3,6 +3,7 @@ package clientfactory
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -57,11 +58,12 @@ func New(ctx context.Context, value appconfig.AWSConfig, observer awscommon.Obse
 			awsconfig.WithRetryer(func() aws.Retryer { return awscommon.NewRetryer(value.Retry) }),
 		}
 	}
-	fallback, err := awsconfig.LoadDefaultConfig(ctx, commonOptions()...)
-	if err != nil {
-		return nil, fmt.Errorf("load fallback AWS SDK config: %w", err)
+	fallback := aws.Config{
+		Region:      value.Region,
+		HTTPClient:  httpClient,
+		Credentials: aws.AnonymousCredentials{},
+		Retryer:     func() aws.Retryer { return awscommon.NewRetryer(value.Retry) },
 	}
-	fallback.Credentials = aws.AnonymousCredentials{}
 	for name, source := range value.Credentials.Sources {
 		options := commonOptions()
 		switch source.Type {
@@ -71,7 +73,10 @@ func New(ctx context.Context, value appconfig.AWSConfig, observer awscommon.Obse
 			provider := credentials.NewStaticCredentialsProvider(
 				os.Getenv(source.AccessKeyIDEnv), os.Getenv(source.SecretAccessKeyEnv), os.Getenv(source.SessionTokenEnv),
 			)
-			options = append(options, awsconfig.WithCredentialsProvider(provider))
+			base := fallback.Copy()
+			base.Credentials = aws.NewCredentialsCache(provider)
+			sources[name] = base
+			continue
 		case appconfig.CredentialSourceDefaultChain:
 		default:
 			sources[name] = fallback.Copy()
@@ -159,7 +164,8 @@ func (factory *Factory) ForTarget(target appconfig.TargetConfig) (Clients, error
 	} else {
 		clients.Verifier = &targetVerifier{
 			client: identityClient, target: targetID, accountID: target.AccountID,
-			observer: factory.observer, failureTTL: min(factory.config.RequestTimeout, time.Minute), successTTL: time.Hour,
+			credentials: sdkConfig.Credentials,
+			observer:    factory.observer, failureTTL: min(factory.config.RequestTimeout, time.Minute), successTTL: time.Hour,
 		}
 	}
 	clients.CostExplorer = costexplorer.NewFromConfig(sdkConfig, func(options *costexplorer.Options) {
@@ -191,29 +197,37 @@ type identityAPI interface {
 }
 
 type targetVerifier struct {
-	client     identityAPI
-	target     identity.TargetID
-	accountID  string
-	observer   awscommon.Observer
-	failureTTL time.Duration
-	successTTL time.Duration
+	client      identityAPI
+	target      identity.TargetID
+	accountID   string
+	credentials aws.CredentialsProvider
+	observer    awscommon.Observer
+	failureTTL  time.Duration
+	successTTL  time.Duration
 
 	mu            sync.Mutex
 	verified      bool
 	verifiedUntil time.Time
+	verifiedFor   [sha256.Size]byte
 	inFlight      chan struct{}
 	lastErr       error
 	retryAfter    time.Time
+	failedFor     [sha256.Size]byte
 }
 
 func (verifier *targetVerifier) Verify(ctx context.Context) error {
-	if verifier == nil || verifier.client == nil || verifier.target == "" || verifier.accountID == "" {
+	if verifier == nil || verifier.client == nil || verifier.credentials == nil || verifier.target == "" || verifier.accountID == "" {
 		return errors.New("invalid AWS target verifier")
 	}
 	for {
+		fingerprint, err := verifier.credentialFingerprint(ctx)
+		if err != nil {
+			return err
+		}
 		verifier.mu.Lock()
 		now := time.Now()
-		if verifier.verified && (verifier.successTTL <= 0 || now.Before(verifier.verifiedUntil)) {
+		if verifier.verified && verifier.verifiedFor == fingerprint &&
+			(verifier.successTTL <= 0 || now.Before(verifier.verifiedUntil)) {
 			verifier.mu.Unlock()
 			return nil
 		}
@@ -228,7 +242,7 @@ func (verifier *targetVerifier) Verify(ctx context.Context) error {
 				return awscommon.ClassifyError(ctx.Err())
 			}
 		}
-		if verifier.lastErr != nil && time.Now().Before(verifier.retryAfter) {
+		if verifier.lastErr != nil && verifier.failedFor == fingerprint && time.Now().Before(verifier.retryAfter) {
 			err := verifier.lastErr
 			verifier.mu.Unlock()
 			return err
@@ -237,15 +251,17 @@ func (verifier *targetVerifier) Verify(ctx context.Context) error {
 		verifier.inFlight = wait
 		verifier.mu.Unlock()
 
-		err := verifier.verify(ctx)
+		err = verifier.verify(ctx, fingerprint)
 		verifier.mu.Lock()
 		if err == nil {
 			verifier.verified = true
 			verifier.verifiedUntil = time.Now().Add(verifier.successTTL)
+			verifier.verifiedFor = fingerprint
 			verifier.lastErr = nil
 		} else {
 			verifier.lastErr = err
 			verifier.retryAfter = time.Now().Add(verifier.failureTTL)
+			verifier.failedFor = fingerprint
 		}
 		verifier.inFlight = nil
 		close(wait)
@@ -254,7 +270,7 @@ func (verifier *targetVerifier) Verify(ctx context.Context) error {
 	}
 }
 
-func (verifier *targetVerifier) verify(ctx context.Context) error {
+func (verifier *targetVerifier) verify(ctx context.Context, expected [sha256.Size]byte) error {
 	started := time.Now()
 	output, err := verifier.client.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	awscommon.ObserveCall(verifier.observer, verifier.target, awscommon.OperationGetCallerIdentity, started, err)
@@ -264,7 +280,29 @@ func (verifier *targetVerifier) verify(ctx context.Context) error {
 	if output == nil || output.Account == nil || *output.Account != verifier.accountID {
 		return identityMismatchError{}
 	}
+	current, err := verifier.credentialFingerprint(ctx)
+	if err != nil {
+		return err
+	}
+	if current != expected {
+		return credentialsChangedError{}
+	}
 	return nil
+}
+
+func (verifier *targetVerifier) credentialFingerprint(ctx context.Context) ([sha256.Size]byte, error) {
+	resolved, err := verifier.credentials.Retrieve(ctx)
+	if err != nil {
+		return [sha256.Size]byte{}, awscommon.ClassifyError(err)
+	}
+	if resolved.AccessKeyID == "" {
+		return [sha256.Size]byte{}, awscommon.ClassifyError(errors.New("AWS credentials are unavailable"))
+	}
+	value := resolved.AccessKeyID + "\x00" + resolved.SecretAccessKey + "\x00" + resolved.SessionToken + "\x00" + resolved.Source
+	if resolved.CanExpire {
+		value += "\x00" + resolved.Expires.UTC().Format(time.RFC3339Nano)
+	}
+	return sha256.Sum256([]byte(value)), nil
 }
 
 type identityMismatchError struct{}
@@ -274,6 +312,14 @@ func (identityMismatchError) Error() string {
 }
 func (identityMismatchError) SafeKind() string { return string(awscommon.ErrorValidation) }
 func (identityMismatchError) Retryable() bool  { return false }
+
+type credentialsChangedError struct{}
+
+func (credentialsChangedError) Error() string {
+	return "AWS credentials changed during target verification"
+}
+func (credentialsChangedError) SafeKind() string { return string(awscommon.ErrorTransient) }
+func (credentialsChangedError) Retryable() bool  { return true }
 
 type unavailableVerifier struct{ cause error }
 

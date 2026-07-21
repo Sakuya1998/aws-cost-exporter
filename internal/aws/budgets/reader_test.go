@@ -46,3 +46,23 @@ func TestReaderRejectsMissingAllowlistedBudget(t *testing.T) {
 		t.Fatal("accepted missing allowlisted budget")
 	}
 }
+
+func TestReaderRejectsNonCostBudgetAndMismatchedUnits(t *testing.T) {
+	reader := &Reader{target: "payer"}
+	base := budgettypes.Budget{
+		BudgetName: aws.String("Usage"), BudgetType: budgettypes.BudgetTypeUsage,
+		TimeUnit:    budgettypes.TimeUnitMonthly,
+		BudgetLimit: &budgettypes.Spend{Amount: aws.String("100"), Unit: aws.String("GB")},
+	}
+	if _, err := reader.mapBudget(base); err == nil {
+		t.Fatal("accepted non-COST budget")
+	}
+	base.BudgetType = budgettypes.BudgetTypeCost
+	base.BudgetLimit.Unit = aws.String("USD")
+	base.CalculatedSpend = &budgettypes.CalculatedSpend{
+		ActualSpend: &budgettypes.Spend{Amount: aws.String("1"), Unit: aws.String("EUR")},
+	}
+	if _, err := reader.mapBudget(base); err == nil {
+		t.Fatal("accepted mismatched budget units")
+	}
+}

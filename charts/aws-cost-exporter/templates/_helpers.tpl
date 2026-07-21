@@ -32,3 +32,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "aws-cost-exporter.configMapName" -}}
 {{- default (include "aws-cost-exporter.fullname" .) .Values.config.existingConfigMap }}
 {{- end }}
+
+{{- define "aws-cost-exporter.validatePort" -}}
+{{- if not .Values.config.existingConfigMap -}}
+{{- $listenAddress := dig "server" "listen_address" "" .Values.config.data | toString -}}
+{{- $listenPort := regexFind "[0-9]+$" $listenAddress -}}
+{{- if or (eq $listenPort "") (ne $listenPort (.Values.service.targetPort | toString)) -}}
+{{- fail "service.targetPort must match config.data.server.listen_address" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}

@@ -28,7 +28,7 @@ func TestRunnerRetriesWithBoundedBackoff(t *testing.T) {
 	})
 	config := validSchedulerConfig()
 	config.JitterRatio = 0
-	config.Backoff = BackoffConfig{Initial: time.Minute, Max: 2 * time.Minute, Multiplier: 2}
+	config.Backoff = BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: 2 * time.Minute, Multiplier: 2}
 	runner, _ := NewJobs([]Job{{Collector: collector, Interval: time.Hour, StartupRefresh: true}}, store, clock, nil, config)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

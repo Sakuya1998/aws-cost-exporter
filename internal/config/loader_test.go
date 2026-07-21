@@ -28,9 +28,6 @@ func TestLoadAppliesDocumentedPrecedence(t *testing.T) {
 	if got.Server.ListenAddress != ":9400" || got.Log.Level != "debug" || got.AWS.RequestTimeout != 45*time.Second {
 		t.Fatalf("precedence result = %#v", got)
 	}
-	if err := config.Check(config.Options{Path: path}); err != nil {
-		t.Fatalf("Check() = %v", err)
-	}
 }
 
 func TestLoadRejectsUnknownAndV01FieldsWithoutLeakingValues(t *testing.T) {
@@ -55,17 +52,17 @@ func TestLoadRejectsUnknownAndV01FieldsWithoutLeakingValues(t *testing.T) {
 	}
 }
 
-func TestLoadResolvesExternalIDEnvironmentDuringCheck(t *testing.T) {
+func TestLoadResolvesExternalIDEnvironment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	document := []byte("aws:\n  credentials:\n    sources:\n      runtime:\n        type: default_chain\ntargets:\n  - name: payer-prod\n    account_id: \"444455556666\"\n    required: true\n    credentials:\n      source: runtime\n      assume_role:\n        role_arn: arn:aws:iam::444455556666:role/aws-cost-exporter-reader\n        external_id_env: TEST_EXTERNAL_ID\n    cost_explorer:\n      enabled: true\n")
 	if err := os.WriteFile(path, document, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.Check(config.Options{Path: path}); err == nil || !strings.Contains(err.Error(), "external_id_env") {
-		t.Fatalf("Check(unset env) = %v", err)
+	if _, err := config.Load(config.Options{Path: path}); err == nil || !strings.Contains(err.Error(), "external_id_env") {
+		t.Fatalf("Load(unset env) = %v", err)
 	}
 	t.Setenv("TEST_EXTERNAL_ID", "private-value")
-	if err := config.Check(config.Options{Path: path}); err != nil {
-		t.Fatalf("Check(set env) = %v", err)
+	if _, err := config.Load(config.Options{Path: path}); err != nil {
+		t.Fatalf("Load(set env) = %v", err)
 	}
 }

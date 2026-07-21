@@ -35,6 +35,7 @@ func TestChartAssetsContainRuntimeContracts(t *testing.T) {
 		"runAsUser: 65532", "runAsGroup: 65532", "runAsNonRoot: true",
 		"readOnlyRootFilesystem: true", "allowPrivilegeEscalation: false",
 		"path: /healthz", "path: /ready",
+		"targetPort: 8080",
 		"serviceMonitor:", "prometheusRule:", "networkPolicy:", "podDisruptionBudget:",
 		"secretEnvRefs:", "awsSharedConfig:",
 	} {
@@ -136,6 +137,21 @@ func TestNetworkPolicyRequiresKubeletCIDRs(t *testing.T) {
 	).CombinedOutput()
 	if err == nil || !strings.Contains(string(output), "networkPolicy.kubeletCIDRs must contain") {
 		t.Fatalf("unsafe NetworkPolicy unexpectedly rendered: error=%v output=%s", err, output)
+	}
+}
+
+func TestServiceTargetPortMustMatchExporterListenAddress(t *testing.T) {
+	helm := requireTool(t, "helm")
+	output, err := exec.Command(
+		helm, "template", "e2e", chartPath(t), "--set", "service.targetPort=9090",
+	).CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "service.targetPort must match config.data.server.listen_address") {
+		t.Fatalf("mismatched port unexpectedly rendered: error=%v output=%s", err, output)
+	}
+	rendered := run(t, helm, "template", "e2e", chartPath(t),
+		"--set", "service.targetPort=9090", "--set-string", "config.data.server.listen_address=:9090")
+	if !strings.Contains(rendered, "containerPort: 9090") {
+		t.Fatalf("custom target port was not rendered: %s", rendered)
 	}
 }
 

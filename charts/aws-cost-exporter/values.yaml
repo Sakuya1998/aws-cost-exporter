@@ -30,6 +30,7 @@ securityContext:
 service:
   type: ClusterIP
   port: 8080
+  targetPort: 8080
 
 livenessProbe:
   enabled: true
@@ -76,6 +77,11 @@ config:
         cost_explorer:
           enabled: true
     collection:
+      failure_backoff:
+        max_attempts: 3
+        initial: 1m
+        max: 30m
+        multiplier: 2
       cost_explorer:
         max_pages: 50
 

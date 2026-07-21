@@ -133,12 +133,18 @@ func (reader *Reader) mapBudget(value budgettypes.Budget) (domain.Budget, error)
 			if spendErr != nil {
 				return domain.Budget{}, spendErr
 			}
+			if actual.Currency() != limit.Currency() {
+				return domain.Budget{}, fmt.Errorf("%w: budget units differ", ErrInvalidResponse)
+			}
 			result.Actual, result.HasActual = actual, true
 		}
 		if value.CalculatedSpend.ForecastedSpend != nil {
 			forecasted, spendErr := parseSpend(value.CalculatedSpend.ForecastedSpend)
 			if spendErr != nil {
 				return domain.Budget{}, spendErr
+			}
+			if forecasted.Currency() != limit.Currency() {
+				return domain.Budget{}, fmt.Errorf("%w: budget units differ", ErrInvalidResponse)
 			}
 			result.Forecasted, result.HasForecasted = forecasted, true
 		}
@@ -147,12 +153,7 @@ func (reader *Reader) mapBudget(value budgettypes.Budget) (domain.Budget, error)
 }
 
 func knownBudgetType(value string) bool {
-	switch value {
-	case "COST", "USAGE", "RI_UTILIZATION", "RI_COVERAGE", "SAVINGS_PLANS_UTILIZATION", "SAVINGS_PLANS_COVERAGE":
-		return true
-	default:
-		return false
-	}
+	return value == "COST"
 }
 
 func knownTimeUnit(value string) bool {

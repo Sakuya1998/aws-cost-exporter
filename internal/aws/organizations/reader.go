@@ -19,7 +19,14 @@ var (
 	ErrInvalidConfig   = errors.New("invalid Organizations adapter configuration")
 	ErrInvalidResponse = errors.New("invalid Organizations response")
 	ErrPageLimit       = errors.New("organizations page limit exceeded")
+	ErrSeriesLimit     = errors.New("organizations account limit exceeded")
 )
+
+// Policy bounds and optionally allowlists metadata retained from Organizations.
+type Policy struct {
+	AccountIDs  []string
+	SeriesLimit int
+}
 
 type API interface {
 	ListAccounts(context.Context, *organizations.ListAccountsInput, ...func(*organizations.Options)) (*organizations.ListAccountsOutput, error)
@@ -28,21 +35,36 @@ type API interface {
 
 // Reader validates organization context and retrieves all account metadata.
 type Reader struct {
-	target   identity.TargetID
-	api      API
-	maxPages int
-	observer awscommon.Observer
-	retryer  func(string) aws.Retryer
+	target      identity.TargetID
+	api         API
+	maxPages    int
+	allowlist   map[string]struct{}
+	seriesLimit int
+	observer    awscommon.Observer
+	retryer     func(string) aws.Retryer
 }
 
-func New(target identity.TargetID, api API, maxPages int, observer awscommon.Observer, retryer func(string) aws.Retryer) (*Reader, error) {
-	if target == "" || api == nil || maxPages <= 0 || retryer == nil {
+func New(target identity.TargetID, api API, maxPages int, policy Policy, observer awscommon.Observer, retryer func(string) aws.Retryer) (*Reader, error) {
+	if target == "" || api == nil || maxPages <= 0 || policy.SeriesLimit <= 0 || len(policy.AccountIDs) > policy.SeriesLimit || retryer == nil {
 		return nil, ErrInvalidConfig
 	}
 	if observer == nil {
 		observer = awscommon.DiscardObserver{}
 	}
-	return &Reader{target: target, api: api, maxPages: maxPages, observer: observer, retryer: retryer}, nil
+	allowlist := make(map[string]struct{}, len(policy.AccountIDs))
+	for _, id := range policy.AccountIDs {
+		if !accountID(id) {
+			return nil, ErrInvalidConfig
+		}
+		if _, duplicate := allowlist[id]; duplicate {
+			return nil, ErrInvalidConfig
+		}
+		allowlist[id] = struct{}{}
+	}
+	return &Reader{
+		target: target, api: api, maxPages: maxPages, allowlist: allowlist,
+		seriesLimit: policy.SeriesLimit, observer: observer, retryer: retryer,
+	}, nil
 }
 
 // ReadAccounts returns an all-or-nothing, email-free metadata result.
@@ -90,6 +112,14 @@ func (reader *Reader) ReadAccounts(ctx context.Context) ([]domain.Account, error
 				return nil, fmt.Errorf("%w: duplicate account", ErrInvalidResponse)
 			}
 			seenAccounts[id] = struct{}{}
+			if len(reader.allowlist) != 0 {
+				if _, selected := reader.allowlist[id]; !selected {
+					continue
+				}
+			}
+			if len(values) >= reader.seriesLimit {
+				return nil, ErrSeriesLimit
+			}
 			values = append(values, domain.Account{Target: reader.target, AccountID: id, Name: name, Status: accountStatus(string(account.State), string(account.Status))})
 		}
 		token := aws.ToString(output.NextToken)

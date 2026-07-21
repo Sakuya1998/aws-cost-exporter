@@ -30,7 +30,7 @@ helm install aws-cost-exporter \
   --set config.data.targets[0].account_id=444455556666
 ```
 
-The chart intentionally defaults to `replicaCount: 1`. Multiple replicas duplicate AWS requests and expose duplicate scrape targets because v0.2 has no leader election or shared cache.
+The chart intentionally defaults to `replicaCount: 1`. Multiple replicas duplicate AWS requests and expose duplicate scrape targets because v0.2 has no leader election or shared cache. If the exporter listen port is changed, set `service.targetPort` to the same port; Helm rejects mismatched generated configurations.
 
 ## Configuration
 
@@ -112,12 +112,13 @@ Before a collector accesses billing APIs, its final target credentials are verif
 
 Organizations `account_ids` is an optional allowlist. When non-empty, only those accounts are exported. When empty, metadata is exported only for linked accounts already observed by the target account cost collector. Organizations never creates targets automatically and never exposes account email.
 
-Budgets requires a non-empty exact-name allowlist. Missing actual or forecasted values omit the corresponding series instead of exporting zero.
+Budgets requires a non-empty exact-name allowlist and exports only `COST` budgets. Usage, RI, and Savings Plans utilization/coverage budgets use non-currency units and are rejected. Missing actual or forecasted values omit the corresponding series instead of exporting zero.
 
 Important bounds:
 
 - `targets` and credential sources: 1–20.
 - `aws.retry.max_attempts`: 1–10.
+- `collection.failure_backoff.max_attempts`: 1–10 logical collector attempts per scheduled run; the default is 3.
 - global and target burst: 1–5; RPS must be finite, positive, and no more than 10.
 - all `max_pages`: 1–200.
 - Cost Explorer and Organizations `series_limit`: at most 2000; Budgets: at most 500.
@@ -171,7 +172,7 @@ approximate Cost Explorer requests per refresh = T × (8 × P + forecast operati
 
 SDK retries can produce additional billable HTTP attempts. `aws_cost_exporter_aws_api_requests_total` counts logical SDK operations, `aws_cost_exporter_pagination_pages_total` counts successfully read pages, and `aws_cost_exporter_aws_api_retries_total` counts authorized retry attempts. They are related but not interchangeable with the AWS invoice.
 
-Both initial attempts and retries acquire the global limiter and then the target limiter. Tighten target filters, increase refresh intervals, or reduce `max_pages` before raising rate limits. `series_limit` bounds Prometheus cardinality but does not reduce Cost Explorer pages.
+Both initial attempts and SDK retries acquire the global limiter and then the target limiter. A scheduled collector run is additionally bounded by `collection.failure_backoff.max_attempts`; after that budget is exhausted it waits for the next normal interval. Collectors for one target run serially so a slow account cannot occupy every global collection slot. Tighten target filters, increase refresh intervals, or reduce `max_pages` before raising rate limits. `series_limit` bounds Prometheus cardinality but does not reduce Cost Explorer pages.
 
 Use `AWSCostExplorerPaginationSpike` and `AWSCostExplorerThrottleSustained` from [rules/prometheus/aws-cost-exporter.rules.yaml](rules/prometheus/aws-cost-exporter.rules.yaml).
 
@@ -251,7 +252,7 @@ Dimension values beyond `collection.cost_explorer.dimensions.series_limit` are a
 - [docs/operations/troubleshooting.md](docs/operations/troubleshooting.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)
 
-The dashboard includes a target selector and keeps target and currency in all monetary aggregations.
+The dashboard derives target selection from exporter collector status, so it also works when the total-cost collector is disabled. It keeps target and currency in all monetary aggregations.
 
 ## Development
 
