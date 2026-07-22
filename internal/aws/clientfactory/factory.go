@@ -16,6 +16,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/service/athena"
 	"github.com/aws/aws-sdk-go-v2/service/budgets"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/organizations"
@@ -29,6 +30,7 @@ import (
 // Clients contains the service clients belonging to one target credential boundary.
 type Clients struct {
 	CostExplorer  *costexplorer.Client
+	Athena        *athena.Client
 	Organizations *organizations.Client
 	Budgets       *budgets.Client
 	Retryer       func(string) aws.Retryer
@@ -126,11 +128,15 @@ func (factory *Factory) ForTarget(target appconfig.TargetConfig) (Clients, error
 		Global: factory.global,
 		Target: awscommon.NewLimiter(factory.config.RateLimit.TargetRequestsPerSecond, factory.config.RateLimit.TargetBurst),
 	}
-	retryers := make(map[string]aws.Retryer, 7)
+	retryers := make(map[string]aws.Retryer, 16)
 	for _, operation := range []string{
 		awscommon.OperationAssumeRole, awscommon.OperationGetCallerIdentity, awscommon.OperationGetCostAndUsage,
 		awscommon.OperationGetCostForecast, awscommon.OperationListAccounts,
 		awscommon.OperationDescribeOrganization, awscommon.OperationDescribeBudgets,
+		awscommon.OperationGetSavingsPlansUtilization, awscommon.OperationGetSavingsPlansCoverage,
+		awscommon.OperationGetReservationUtilization, awscommon.OperationGetReservationCoverage,
+		awscommon.OperationGetAnomalies, awscommon.OperationStartQueryExecution,
+		awscommon.OperationGetQueryExecution, awscommon.OperationGetQueryResults,
 	} {
 		retryers[operation] = awscommon.WrapRetryer(base.Retryer(), targetID, operation, limiter, factory.observer)
 	}
@@ -172,6 +178,12 @@ func (factory *Factory) ForTarget(target appconfig.TargetConfig) (Clients, error
 		options.AppID = "aws-cost-exporter"
 		options.Retryer = clients.Retryer(awscommon.OperationGetCostAndUsage)
 		if endpoint := strings.TrimSpace(factory.config.Endpoints.CostExplorer); endpoint != "" {
+			options.BaseEndpoint = aws.String(endpoint)
+		}
+	})
+	clients.Athena = athena.NewFromConfig(sdkConfig, func(options *athena.Options) {
+		options.Retryer = clients.Retryer(awscommon.OperationStartQueryExecution)
+		if endpoint := strings.TrimSpace(factory.config.Endpoints.Athena); endpoint != "" {
 			options.BaseEndpoint = aws.String(endpoint)
 		}
 	})

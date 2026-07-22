@@ -10,6 +10,7 @@ import (
 type CostQuery struct {
 	Period           cost.Period
 	Window           cost.Window
+	Basis            cost.Basis
 	GroupBy          cost.DimensionKind
 	LinkedAccountIDs []string
 	Services         []string
@@ -19,6 +20,7 @@ type CostQuery struct {
 // ForecastQuery describes one GetCostForecast request without AWS SDK types.
 type ForecastQuery struct {
 	Period             cost.Period
+	Basis              cost.Basis
 	PredictionInterval int
 	LinkedAccountIDs   []string
 	Services           []string

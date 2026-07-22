@@ -2,7 +2,7 @@
 
 ## Readiness and target isolation
 
-`/ready` returns 503 with `missing` until every enabled Cost Explorer collector on every required target has succeeded. `stale` means its last success exceeded `cache.stale_after`. Optional targets, Organizations, and Budgets do not gate readiness.
+`/ready` returns 503 with `missing` until every enabled Cost Explorer collector on every required target has succeeded. `stale` means its last success exceeded `cache.stale_after`. Optional targets, Organizations, Budgets, Commitments, Anomalies, Tags, and CUR do not gate readiness.
 
 Inspect `aws_cost_exporter_collector_up{target="..."}` and `aws_cost_exporter_cache_age_seconds`. A failed target retains its old snapshot and does not block unrelated targets.
 
@@ -24,11 +24,19 @@ Cost Explorer logical calls, successful pages, SDK retries, and AWS-billed HTTP 
 
 Never aggregate different `currency` values. Forecast covers today through month end, so month-end estimates subtract today from MTD before adding forecast.
 
+Never aggregate different `provider` or `cost_basis` values. `cost_explorer` is eventually consistent API data; `cur_athena` follows the CUR delivery schedule and fixed Athena query semantics.
+
 Cost dimensions beyond `collection.cost_explorer.dimensions.series_limit` fold into `__other__`. Inspect `aws_cost_exporter_dimension_overflow_values_total`. `overflow_label` must not collide with a provider dimension.
 
 Only AWS Budgets with `budget_type=COST` are exported. Non-currency usage and utilization budgets are rejected rather than mislabeled as currency metrics.
 
 Organizations account metadata is limited to the explicit allowlist or observed linked accounts. Budgets is limited to configured names. Limits reject the refresh and retain old data rather than silently truncating it.
+
+## Commitment, anomaly, and CUR failures
+
+Commitment and anomaly collectors require the Cost Explorer permissions in `examples/iam/commitments-anomalies-readonly.json`. They expose bounded account-level summaries and never publish plan IDs, anomaly IDs, root causes, or raw AWS messages.
+
+For CUR failures, verify the configured database, table, workgroup, result S3 location, and tag column mappings. The exporter does not create tables or accept arbitrary SQL. Athena `FAILED`, `CANCELLED`, timed-out, malformed, duplicate, or over-limit results are rejected atomically. Inspect request metrics for `StartQueryExecution`, `GetQueryExecution`, and `GetQueryResults`.
 
 ## Shutdown, replicas, and debug
 

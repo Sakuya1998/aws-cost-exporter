@@ -71,6 +71,32 @@ func TestUsageAdapterAggregatesMTDAcrossDailyRows(t *testing.T) {
 	}
 }
 
+func TestUsageAdapterReadsAllowlistedTagCostsAndBasisMetrics(t *testing.T) {
+	api := &tagUsageAPI{}
+	subject, err := NewUsageAdapterForTarget("payer", api, 10, metricUnblendedCost, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	period := cost.DayContaining(time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
+	values, err := subject.ReadTagCosts(context.Background(), ports.CostQuery{Period: period, Window: cost.WindowDaily, Basis: cost.BasisNet}, "Environment")
+	if err != nil || len(values) != 2 || values[0].TagValue != "prod" || values[1].TagValue != "dev" {
+		t.Fatalf("tag values=%#v err=%v", values, err)
+	}
+	if api.input == nil || api.input.GroupBy[0].Type != cetypes.GroupDefinitionTypeTag || api.input.Metrics[0] != "NetUnblendedCost" {
+		t.Fatalf("tag input=%#v", api.input)
+	}
+	for _, basis := range []cost.Basis{cost.BasisAmortized, cost.BasisNet} {
+		if _, err := subject.ReadCosts(context.Background(), ports.CostQuery{Period: period, Window: cost.WindowDaily, Basis: basis, GroupBy: cost.DimensionAccount}); err != nil {
+			t.Fatalf("basis %s failed: %v", basis, err)
+		}
+	}
+	bad := &tagUsageAPI{malformed: true}
+	adapter, _ := NewUsageAdapterForTarget("payer", bad, 10, metricUnblendedCost, nil)
+	if _, err := adapter.ReadTagCosts(context.Background(), ports.CostQuery{Period: period, Window: cost.WindowDaily}, "Environment"); err == nil {
+		t.Fatal("accepted malformed tag response")
+	}
+}
+
 // TestUsageAdapterRejectsPartialFailuresAndInvalidQueries verifies boundaries.
 func TestUsageAdapterRejectsPartialFailuresAndInvalidQueries(t *testing.T) {
 	if adapter, err := NewUsageAdapter(nil, 50, metricUnblendedCost, nil); adapter != nil || !errors.Is(err, ErrNilUsageAPI) {
@@ -119,6 +145,27 @@ func (api *usageAPI) GetCostAndUsage(_ context.Context, input *awscostexplorer.G
 
 type multiDayUsageAPI struct {
 	input *awscostexplorer.GetCostAndUsageInput
+}
+
+type tagUsageAPI struct {
+	input     *awscostexplorer.GetCostAndUsageInput
+	malformed bool
+}
+
+func (api *tagUsageAPI) GetCostAndUsage(_ context.Context, input *awscostexplorer.GetCostAndUsageInput, _ ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostAndUsageOutput, error) {
+	api.input = input
+	metric := input.Metrics[0]
+	if api.malformed {
+		return &awscostexplorer.GetCostAndUsageOutput{ResultsByTime: []cetypes.ResultByTime{{TimePeriod: input.TimePeriod, Groups: []cetypes.Group{{Keys: []string{"Environment$prod", "extra"}, Metrics: map[string]cetypes.MetricValue{metric: {Amount: aws.String("1"), Unit: aws.String("USD")}}}}}}}, nil
+	}
+	return &awscostexplorer.GetCostAndUsageOutput{ResultsByTime: []cetypes.ResultByTime{{TimePeriod: input.TimePeriod, Groups: []cetypes.Group{
+		{Keys: []string{"Environment$prod"}, Metrics: map[string]cetypes.MetricValue{metric: {Amount: aws.String("2"), Unit: aws.String("USD")}}},
+		{Keys: []string{"Environment$dev"}, Metrics: map[string]cetypes.MetricValue{metric: {Amount: aws.String("1"), Unit: aws.String("USD")}}},
+	}}}}, nil
+}
+
+func (api *tagUsageAPI) GetCostForecast(context.Context, *awscostexplorer.GetCostForecastInput, ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostForecastOutput, error) {
+	return nil, errors.New("unexpected forecast call")
 }
 
 func (api *multiDayUsageAPI) GetCostAndUsage(_ context.Context, input *awscostexplorer.GetCostAndUsageInput, _ ...func(*awscostexplorer.Options)) (*awscostexplorer.GetCostAndUsageOutput, error) {

@@ -30,13 +30,14 @@ func TestLoadAppliesDocumentedPrecedence(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsUnknownAndV01FieldsWithoutLeakingValues(t *testing.T) {
+func TestLoadRejectsUnknownAndLegacyFieldsWithoutLeakingValues(t *testing.T) {
 	for _, document := range []string{
 		"aws:\n  secret_access_key: super-secret-value\n  credentials:\n    sources:\n      runtime:\n        type: default_chain\n" + minimalTargetOnlyYAML,
 		"aws:\n  profile: legacy\n  credentials:\n    sources:\n      runtime:\n        type: default_chain\n" + minimalTargetOnlyYAML,
 		minimalCredentialsYAML + "targets:\n  - name: payer-prod\n    account_id: \"444455556666\"\n    required: true\n    credentials:\n      source: runtime\n    assume_role:\n      role_arn: arn:aws:iam::444455556666:role/legacy\n    cost_explorer:\n      enabled: true\n",
 		"cost_explorer:\n  enabled: true\n" + minimalTargetYAML,
 		"scheduler:\n  max_concurrency: 2\n" + minimalTargetYAML,
+		"collection:\n  cost_explorer:\n    cost_metric: UnblendedCost\n" + minimalTargetYAML,
 	} {
 		path := filepath.Join(t.TempDir(), "config.yaml")
 		if err := os.WriteFile(path, []byte(document), 0o600); err != nil {

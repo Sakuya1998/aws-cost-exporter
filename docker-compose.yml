@@ -23,6 +23,8 @@ services:
       # default_chain honors AWS_PROFILE. Named profile sources read additional
       # profiles from the mounted ~/.aws files. Define static_env and ExternalId
       # variables here or through an env_file; never put secret values in YAML.
+      # CUR/Athena uses the same target credentials and requires a pre-created
+      # workgroup, CUR 2.0 table, and query-result S3 location.
     volumes:
       - ./configs/aws-cost-exporter.example.yaml:/etc/aws-cost-exporter/config.yaml:ro
       - ${HOME}/.aws:/home/nonroot/.aws:ro

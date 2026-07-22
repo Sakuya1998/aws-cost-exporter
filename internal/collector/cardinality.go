@@ -33,11 +33,34 @@ func LimitDimensions(values []cost.Cost, limit int, other string, observers ...O
 	if other == "" {
 		return nil, ErrInvalidOverflowLabel
 	}
+	groups := make(map[string][]cost.Cost)
 	for _, value := range values {
 		if value.Dimension.Value() == other {
 			return nil, ErrReservedDimension
 		}
+		key := string(cost.NormalizeProvider(value.Provider)) + "\x00" + string(cost.NormalizeBasis(value.Basis))
+		groups[key] = append(groups[key], value)
 	}
+	if len(groups) > 1 {
+		keys := make([]string, 0, len(groups))
+		for key := range groups {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		var result []cost.Cost
+		for _, key := range keys {
+			bounded, err := limitDimensionGroup(groups[key], limit, other, observers...)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, bounded...)
+		}
+		return result, nil
+	}
+	return limitDimensionGroup(values, limit, other, observers...)
+}
+
+func limitDimensionGroup(values []cost.Cost, limit int, other string, observers ...OverflowObserver) ([]cost.Cost, error) {
 	if len(values) <= limit {
 		return append([]cost.Cost(nil), values...), nil
 	}

@@ -26,6 +26,7 @@ type recordingObserver struct {
 	requests []observedRequest
 	retries  []observedRetry
 	pages    int
+	pageOps  []string
 }
 
 func (value *recordingObserver) ObserveRequest(target identity.TargetID, operation, status string, _ time.Duration) {
@@ -34,7 +35,10 @@ func (value *recordingObserver) ObserveRequest(target identity.TargetID, operati
 func (value *recordingObserver) ObserveRetry(target identity.TargetID, operation, reason string) {
 	value.retries = append(value.retries, observedRetry{target, operation, reason})
 }
-func (value *recordingObserver) ObservePaginationPage(identity.TargetID, string) { value.pages++ }
+func (value *recordingObserver) ObservePaginationPage(_ identity.TargetID, operation string) {
+	value.pages++
+	value.pageOps = append(value.pageOps, operation)
+}
 
 type fakeAPI struct {
 	err                           error

@@ -16,13 +16,21 @@ import (
 )
 
 const (
-	OperationAssumeRole           = "AssumeRole"
-	OperationGetCallerIdentity    = "GetCallerIdentity"
-	OperationGetCostAndUsage      = "GetCostAndUsage"
-	OperationGetCostForecast      = "GetCostForecast"
-	OperationListAccounts         = "ListAccounts"
-	OperationDescribeOrganization = "DescribeOrganization"
-	OperationDescribeBudgets      = "DescribeBudgets"
+	OperationAssumeRole                 = "AssumeRole"
+	OperationGetCallerIdentity          = "GetCallerIdentity"
+	OperationGetCostAndUsage            = "GetCostAndUsage"
+	OperationGetCostForecast            = "GetCostForecast"
+	OperationListAccounts               = "ListAccounts"
+	OperationDescribeOrganization       = "DescribeOrganization"
+	OperationDescribeBudgets            = "DescribeBudgets"
+	OperationGetSavingsPlansUtilization = "GetSavingsPlansUtilization"
+	OperationGetSavingsPlansCoverage    = "GetSavingsPlansCoverage"
+	OperationGetReservationUtilization  = "GetReservationUtilization"
+	OperationGetReservationCoverage     = "GetReservationCoverage"
+	OperationGetAnomalies               = "GetAnomalies"
+	OperationStartQueryExecution        = "StartQueryExecution"
+	OperationGetQueryExecution          = "GetQueryExecution"
+	OperationGetQueryResults            = "GetQueryResults"
 )
 
 // Observer receives bounded target, operation, status, and retry labels.

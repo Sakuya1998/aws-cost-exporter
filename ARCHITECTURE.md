@@ -2,13 +2,13 @@
 
 ## Purpose
 
-aws-cost-exporter converts low-frequency AWS billing APIs into stable, target-scoped Prometheus metrics. AWS remains the source of truth. The exporter is not a billing database or financial reconciliation system.
+aws-cost-exporter converts low-frequency AWS billing APIs and fixed-schema CUR 2.0 Athena results into stable, target-scoped Prometheus metrics. AWS remains the source of truth. The exporter is not a billing database or financial reconciliation system.
 
 Prometheus scrapes never trigger AWS requests. Background collectors publish immutable partial results into one atomic in-memory aggregate snapshot.
 
 ## Modular monolith
 
-- `internal/domain` owns target identity, cost, budget, organization, and aggregate snapshot values.
+- `internal/domain` owns target identity, provider/basis-aware cost, commitment, anomaly, tag cost, budget, organization, and aggregate snapshot values.
 - `internal/ports` defines narrow application interfaces.
 - `internal/collector` maps reader ports to typed partial snapshots.
 - `internal/scheduler` owns per-job intervals, target-scoped single-flight, one-at-a-time target execution, global concurrency, and bounded refresh backoff.
@@ -32,6 +32,8 @@ type CollectorID struct {
 ```
 
 Every Cost, Forecast, Budget, Organizations account, partial cache entry, collector status, scheduler job, log event, and target-scoped metric carries target identity.
+
+Cost values additionally carry a bounded provider (`cost_explorer` or `cur_athena`) and accounting basis (`unblended`, `amortized`, or `net`). Snapshot uniqueness includes both fields, so providers and accounting semantics are never silently merged.
 
 Collectors return one strong `PartialSnapshot` containing typed cost, forecast, budget, and account slices. The scheduler and cache never use `any` or AWS SDK response types.
 
@@ -77,8 +79,10 @@ Organizations raw metadata is joined with either the configured account allowlis
 
 Required targets gate readiness through all enabled Cost Explorer collectors. Optional targets, Organizations, and Budgets remain observable but do not make the whole process unready. Liveness reports process health only.
 
-v0.2 remains single-replica. See [ADR 0002](docs/adr/0002-ha-refresh-coordination.md) for the HA evaluation.
+v0.3 remains single-replica. See [ADR 0002](docs/adr/0002-ha-refresh-coordination.md) for the HA evaluation.
+
+Commitment, anomaly, tag, and CUR collectors are optional and do not gate readiness. CUR queries run only in background jobs through `StartQueryExecution`, bounded status polling, and paginated `GetQueryResults`; Prometheus scrapes only the resulting immutable snapshot.
 
 ## Compatibility
 
-v0.2 intentionally replaces the v0.1 configuration and label contract. It has no legacy mode, migration layer, dual exposition, deprecated aliases, or `config_version`. HTTP paths and existing metric names remain stable; target-scoped metrics add the mandatory `target` label.
+v0.3 intentionally replaces the v0.2 configuration and cost-label contract. It has no legacy mode, migration layer, dual exposition, deprecated aliases, or `config_version`. HTTP paths remain stable. Cost metrics add mandatory `provider` and `cost_basis` labels.

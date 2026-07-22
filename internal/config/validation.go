@@ -17,6 +17,8 @@ const (
 	maxCostSeries     = 2000
 	maxOrgSeries      = 2000
 	maxBudgetSeries   = 500
+	maxTagKeys        = 20
+	maxTagValues      = 500
 )
 
 var (
@@ -58,7 +60,7 @@ func reservedMetricsPath(value ServerConfig) bool {
 		(path == "/debug" || path == "/debug/pprof" || strings.HasPrefix(path, "/debug/pprof/"))
 }
 
-// Validate checks all v0.2 field and cross-field invariants. Environment
+// Validate checks all v0.3 field and cross-field invariants. Environment
 // references are resolved here so --check-config and production startup agree.
 func Validate(value Config) error {
 	if err := ValidateServer(value.Server); err != nil {
@@ -99,7 +101,7 @@ func validateBase(value Config) error {
 		{nonFinite(value.Collection.FailureBackoff.Multiplier), "collection.failure_backoff.multiplier", "must be finite"},
 		{value.Collection.FailureBackoff.Multiplier <= 1, "collection.failure_backoff.multiplier", "must exceed 1"},
 		{!anyCollector, "collection.cost_explorer.collectors", "at least one collector must be enabled"},
-		{value.Collection.CostExplorer.CostMetric != "UnblendedCost", "collection.cost_explorer.cost_metric", "only UnblendedCost is supported"},
+		{len(value.Collection.CostExplorer.CostBases) == 0, "collection.cost_explorer.cost_bases", "must contain at least one basis"},
 		{value.Collection.CostExplorer.MaxPages <= 0 || value.Collection.CostExplorer.MaxPages > maxPages, "collection.cost_explorer.max_pages", "must be between 1 and 200"},
 		{collectors.Forecast && (value.Collection.CostExplorer.PredictionInterval < 80 || value.Collection.CostExplorer.PredictionInterval > 99), "collection.cost_explorer.prediction_interval", "must be between 80 and 99"},
 		{value.Collection.CostExplorer.Dimensions.SeriesLimit <= 0 || value.Collection.CostExplorer.Dimensions.SeriesLimit > maxCostSeries, "collection.cost_explorer.dimensions.series_limit", "must be between 1 and 2000"},
@@ -112,6 +114,19 @@ func validateBase(value Config) error {
 		{value.Collection.Budgets.RefreshInterval <= value.AWS.RequestTimeout, "collection.budgets.refresh_interval", "must exceed aws.request_timeout"},
 		{value.Collection.Budgets.MaxPages <= 0 || value.Collection.Budgets.MaxPages > maxPages, "collection.budgets.max_pages", "must be between 1 and 200"},
 		{value.Collection.Budgets.SeriesLimit <= 0 || value.Collection.Budgets.SeriesLimit > maxBudgetSeries, "collection.budgets.series_limit", "must be between 1 and 500"},
+		{value.Collection.Commitments.RefreshInterval <= value.AWS.RequestTimeout, "collection.commitments.refresh_interval", "must exceed aws.request_timeout"},
+		{value.Collection.Commitments.MaxPages <= 0 || value.Collection.Commitments.MaxPages > maxPages, "collection.commitments.max_pages", "must be between 1 and 200"},
+		{value.Collection.Commitments.SeriesLimit <= 0 || value.Collection.Commitments.SeriesLimit > maxCostSeries, "collection.commitments.series_limit", "must be between 1 and 2000"},
+		{value.Collection.Anomalies.RefreshInterval <= value.AWS.RequestTimeout, "collection.anomalies.refresh_interval", "must exceed aws.request_timeout"},
+		{value.Collection.Anomalies.MaxPages <= 0 || value.Collection.Anomalies.MaxPages > maxPages, "collection.anomalies.max_pages", "must be between 1 and 200"},
+		{value.Collection.Anomalies.SeriesLimit <= 0 || value.Collection.Anomalies.SeriesLimit > 20, "collection.anomalies.series_limit", "must be between 1 and 20"},
+		{value.Collection.Tags.MaxPages <= 0 || value.Collection.Tags.MaxPages > maxPages, "collection.tags.max_pages", "must be between 1 and 200"},
+		{value.Collection.Tags.RefreshInterval <= value.AWS.RequestTimeout, "collection.tags.refresh_interval", "must exceed aws.request_timeout"},
+		{value.Collection.Tags.SeriesLimit <= 0 || value.Collection.Tags.SeriesLimit > maxBudgetSeries, "collection.tags.series_limit", "must be between 1 and 500"},
+		{value.Collection.CUR.RefreshInterval <= value.AWS.RequestTimeout, "collection.cur.refresh_interval", "must exceed aws.request_timeout"},
+		{value.Collection.CUR.MaxPages <= 0 || value.Collection.CUR.MaxPages > maxPages, "collection.cur.max_pages", "must be between 1 and 200"},
+		{value.Collection.CUR.MaxRows <= 0 || value.Collection.CUR.MaxRows > 100000, "collection.cur.max_rows", "must be between 1 and 100000"},
+		{value.Collection.CUR.SeriesLimit <= 0 || value.Collection.CUR.SeriesLimit > 20000, "collection.cur.series_limit", "must be between 1 and 20000"},
 		{value.Cache.FreshnessTTL < value.Collection.RefreshInterval, "cache.freshness_ttl", "must not be less than collection.refresh_interval"},
 		{value.Cache.StaleAfter < value.Cache.FreshnessTTL, "cache.stale_after", "must not be less than freshness_ttl"},
 	}
@@ -146,7 +161,7 @@ func validateTargets(value Config) error {
 		if _, exists := value.AWS.Credentials.Sources[target.Credentials.Source]; !exists {
 			return fmt.Errorf("%s.credentials.source: credential source does not exist", path)
 		}
-		if !target.CostExplorer.Enabled && !target.Organizations.Enabled && !target.Budgets.Enabled {
+		if !target.CostExplorer.Enabled && !target.Organizations.Enabled && !target.Budgets.Enabled && !target.Commitments.Enabled && !target.Anomalies.Enabled && !target.CUR.Enabled && !target.Tags.Enabled {
 			return fmt.Errorf("%s: at least one integration must be enabled", path)
 		}
 		if target.Required {
@@ -173,9 +188,140 @@ func validateTargets(value Config) error {
 		if err := validateBudgets(path, target, value.Collection.Budgets.SeriesLimit); err != nil {
 			return err
 		}
+		if err := validateCommitments(path, target); err != nil {
+			return err
+		}
+		if err := validateAnomalies(path, target); err != nil {
+			return err
+		}
+		if err := validateCUR(path, target); err != nil {
+			return err
+		}
+		if err := validateTags(path, target, value.Collection.Tags.SeriesLimit, len(value.Collection.CostExplorer.CostBases)); err != nil {
+			return err
+		}
+	}
+	for index, basis := range value.Collection.CostExplorer.CostBases {
+		if basis != "unblended" && basis != "amortized" && basis != "net" {
+			return fmt.Errorf("collection.cost_explorer.cost_bases[%d]: must be unblended, amortized, or net", index)
+		}
+	}
+	if err := validateUniqueStrings("collection.cost_explorer.cost_bases", value.Collection.CostExplorer.CostBases, nil); err != nil {
+		return err
 	}
 	if requiredCostTargets == 0 {
 		return fmt.Errorf("targets: at least one required Cost Explorer target is required")
+	}
+	return nil
+}
+
+func validateCommitments(path string, target TargetConfig) error {
+	if !target.Commitments.Enabled {
+		return nil
+	}
+	return nil
+}
+
+func validateAnomalies(path string, target TargetConfig) error {
+	if !target.Anomalies.Enabled {
+		return nil
+	}
+	return nil
+}
+
+var sqlIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+var workgroupPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+var s3LocationPattern = regexp.MustCompile(`^s3://[A-Za-z0-9][A-Za-z0-9.-]{1,61}[A-Za-z0-9]/.+$`)
+
+func validateCUR(path string, target TargetConfig) error {
+	if !target.CUR.Enabled {
+		return nil
+	}
+	checks := []struct{ value, field string }{
+		{target.CUR.Database, "database"}, {target.CUR.Table, "table"}, {target.CUR.Workgroup, "workgroup"}, {target.CUR.OutputLocation, "output_location"},
+	}
+	for _, check := range checks {
+		if strings.TrimSpace(check.value) == "" || check.value != strings.TrimSpace(check.value) {
+			return fmt.Errorf("%s.cur.%s: must be non-empty without surrounding whitespace", path, check.field)
+		}
+	}
+	if !sqlIdentifierPattern.MatchString(target.CUR.Database) {
+		return fmt.Errorf("%s.cur.database: must be a safe SQL identifier", path)
+	}
+	if !sqlIdentifierPattern.MatchString(target.CUR.Table) {
+		return fmt.Errorf("%s.cur.table: must be a safe SQL identifier", path)
+	}
+	if !workgroupPattern.MatchString(target.CUR.Workgroup) {
+		return fmt.Errorf("%s.cur.workgroup: has invalid format", path)
+	}
+	if !s3LocationPattern.MatchString(target.CUR.OutputLocation) {
+		return fmt.Errorf("%s.cur.output_location: must be an s3:// prefix", path)
+	}
+	if target.CUR.QueryTimeout <= 0 {
+		return fmt.Errorf("%s.cur.query_timeout: must be positive", path)
+	}
+	if target.CUR.PollInterval <= 0 {
+		return fmt.Errorf("%s.cur.poll_interval: must be positive", path)
+	}
+	if target.CUR.PollInterval >= target.CUR.QueryTimeout {
+		return fmt.Errorf("%s.cur.poll_interval: must be less than query_timeout", path)
+	}
+	if len(target.CUR.TagColumns) > maxTagKeys {
+		return fmt.Errorf("%s.cur.tag_columns: must contain at most %d entries", path, maxTagKeys)
+	}
+	seen := map[string]struct{}{}
+	for index, column := range target.CUR.TagColumns {
+		if column.Key == "" || column.Key != strings.TrimSpace(column.Key) {
+			return fmt.Errorf("%s.cur.tag_columns[%d].key: invalid", path, index)
+		}
+		if !sqlIdentifierPattern.MatchString(column.Column) {
+			return fmt.Errorf("%s.cur.tag_columns[%d].column: must be a safe SQL identifier", path, index)
+		}
+		if _, exists := seen[column.Key]; exists {
+			return fmt.Errorf("%s.cur.tag_columns[%d].key: must be unique", path, index)
+		}
+		seen[column.Key] = struct{}{}
+	}
+	return nil
+}
+
+func validateTags(path string, target TargetConfig, seriesLimit, basisCount int) error {
+	if !target.Tags.Enabled {
+		return nil
+	}
+	if !target.CUR.Enabled && !target.CostExplorer.Enabled {
+		return fmt.Errorf("%s.tags.enabled: requires cur or cost_explorer", path)
+	}
+	if len(target.Tags.Keys) == 0 || len(target.Tags.Keys) > maxTagKeys {
+		return fmt.Errorf("%s.tags.keys: must contain between 1 and %d entries", path, maxTagKeys)
+	}
+	seen := map[string]struct{}{}
+	columns := map[string]struct{}{}
+	for _, item := range target.CUR.TagColumns {
+		columns[item.Key] = struct{}{}
+	}
+	for index, key := range target.Tags.Keys {
+		if key.Key == "" || key.Key != strings.TrimSpace(key.Key) {
+			return fmt.Errorf("%s.tags.keys[%d].key: invalid", path, index)
+		}
+		if key.MaxValues <= 0 || key.MaxValues > maxTagValues {
+			return fmt.Errorf("%s.tags.keys[%d].max_values: must be between 1 and %d", path, index, maxTagValues)
+		}
+		if _, exists := seen[key.Key]; exists {
+			return fmt.Errorf("%s.tags.keys[%d].key: must be unique", path, index)
+		}
+		seen[key.Key] = struct{}{}
+		if target.CUR.Enabled {
+			if _, exists := columns[key.Key]; !exists {
+				return fmt.Errorf("%s.tags.keys[%d].key: requires a matching cur.tag_columns entry", path, index)
+			}
+		}
+	}
+	if target.CUR.Enabled && len(columns) != len(seen) {
+		return fmt.Errorf("%s.cur.tag_columns: must exactly match tags.keys", path)
+	}
+	if len(target.Tags.Keys)*2*max(1, basisCount) > seriesLimit {
+		return fmt.Errorf("%s.tags.keys: exceeds collection.tags.series_limit", path)
 	}
 	return nil
 }

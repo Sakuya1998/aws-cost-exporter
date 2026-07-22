@@ -34,7 +34,7 @@ func TestREADMEContainsDeploymentAndRuntimeContracts(t *testing.T) {
 		"Cost Explorer API requests are billed", "not a financial reconciliation system",
 		"Never sum different `currency`", "does not call AWS during a Prometheus scrape",
 		"max_pages", "series_limit", "8 `GetCostAndUsage`",
-		"cost_metric", "overflow_label", "shutdown_timeout",
+		"cost_bases", "overflow_label", "shutdown_timeout",
 		"scheduler_shutdown_timeouts_total",
 		"AWSCostExplorerPaginationSpike", "AWSCostExplorerThrottleSustained",
 		"pagination_pages_total", "Apache License", "LICENSE",

@@ -19,6 +19,8 @@ const (
 // Cost is one monetary observation for a period and dimension.
 type Cost struct {
 	Target    identity.TargetID
+	Provider  Provider
+	Basis     Basis
 	Window    Window
 	Period    Period
 	Dimension Dimension
@@ -28,6 +30,8 @@ type Cost struct {
 // Forecast contains AWS prediction bounds for a future period.
 type Forecast struct {
 	Target     identity.TargetID
+	Provider   Provider
+	Basis      Basis
 	Period     Period
 	Mean       Money
 	LowerBound Money
@@ -106,6 +110,12 @@ func (snapshot Snapshot) ForEachForecast(visit func(Forecast)) {
 
 // costLess defines deterministic ordering for metric generation.
 func costLess(left, right Cost) bool {
+	if NormalizeProvider(left.Provider) != NormalizeProvider(right.Provider) {
+		return NormalizeProvider(left.Provider) < NormalizeProvider(right.Provider)
+	}
+	if NormalizeBasis(left.Basis) != NormalizeBasis(right.Basis) {
+		return NormalizeBasis(left.Basis) < NormalizeBasis(right.Basis)
+	}
 	if left.Window != right.Window {
 		return left.Window < right.Window
 	}
@@ -114,6 +124,9 @@ func costLess(left, right Cost) bool {
 	}
 	if left.Dimension.Value() != right.Dimension.Value() {
 		return left.Dimension.Value() < right.Dimension.Value()
+	}
+	if left.Amount.Currency() != right.Amount.Currency() {
+		return left.Amount.Currency() < right.Amount.Currency()
 	}
 
 	return left.Period.Start().Before(right.Period.Start())

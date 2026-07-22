@@ -71,7 +71,7 @@ jobs:
         run: |
           go test -covermode=atomic -coverprofile=coverage.out ./cmd/... ./internal/...
           coverage="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
-          awk -v coverage="$coverage" 'BEGIN { if (coverage < 75) { print "coverage < 75%"; exit 1 } }'
+          awk -v coverage="$coverage" 'BEGIN { if (coverage < 79) { print "coverage < 79%"; exit 1 } }'
 
   assets:
     runs-on: ubuntu-latest

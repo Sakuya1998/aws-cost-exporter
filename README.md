@@ -2,7 +2,7 @@
 
 [github.com/sakuya1998/aws-cost-exporter](https://github.com/sakuya1998/aws-cost-exporter) exports cached AWS billing data for Prometheus. It is an exporter, not a financial reconciliation system.
 
-v0.2 operates across explicitly configured AWS account targets. Each target selects a named default-chain, shared-profile, or environment-backed credential source and may optionally AssumeRole before enabling Cost Explorer, Organizations metadata, and allowlisted AWS Budgets.
+v0.3 operates across explicitly configured AWS account targets. In addition to Cost Explorer, Organizations, and Budgets, a target can expose bounded Savings Plans/Reserved Instance summaries, Cost Anomaly Detection summaries, allowlisted tag costs, and fixed-schema CUR 2.0 data through Athena.
 
 Prometheus scrapes only an immutable in-memory snapshot and does not call AWS during a Prometheus scrape.
 
@@ -30,7 +30,7 @@ helm install aws-cost-exporter \
   --set config.data.targets[0].account_id=444455556666
 ```
 
-The chart intentionally defaults to `replicaCount: 1`. Multiple replicas duplicate AWS requests and expose duplicate scrape targets because v0.2 has no leader election or shared cache. If the exporter listen port is changed, set `service.targetPort` to the same port; Helm rejects mismatched generated configurations.
+The chart intentionally defaults to `replicaCount: 1`. Multiple replicas duplicate AWS and Athena requests and expose duplicate scrape targets because v0.3 has no leader election or shared cache. If the exporter listen port is changed, set `service.targetPort` to the same port; Helm rejects mismatched generated configurations.
 
 ## Configuration
 
@@ -46,7 +46,7 @@ cache
 telemetry
 ```
 
-There is no `config_version`, v0.1 compatibility parser, automatic migration, or deprecated alias. Unknown fields are rejected.
+There is no `config_version`, v0.2 compatibility parser, automatic migration, or deprecated alias. Unknown fields are rejected.
 
 Start with [configs/aws-cost-exporter.example.yaml](configs/aws-cost-exporter.example.yaml). At least one of 1–20 targets must be `required` and enable Cost Explorer.
 
@@ -102,6 +102,22 @@ targets:
     budgets:
       enabled: true
       names: [Monthly-Production]
+    commitments:
+      enabled: false
+    anomalies:
+      enabled: false
+    tags:
+      enabled: false
+      keys: []
+    cur:
+      enabled: false
+      database: ""
+      table: ""
+      workgroup: ""
+      output_location: ""
+      query_timeout: 10m
+      poll_interval: 2s
+      tag_columns: []
 ```
 
 Credential source types are `default_chain`, `profile`, and `static_env`. Every target explicitly references one source. A source may back many AssumeRole targets but at most one direct target. Account IDs and Role ARNs are unique. Profile sources use standard AWS shared configuration behavior, including `source_profile`, SSO, `credential_process`, and profile role chains.
@@ -114,6 +130,10 @@ Organizations `account_ids` is an optional allowlist. When non-empty, only those
 
 Budgets requires a non-empty exact-name allowlist and exports only `COST` budgets. Usage, RI, and Savings Plans utilization/coverage budgets use non-currency units and are rejected. Missing actual or forecasted values omit the corresponding series instead of exporting zero.
 
+`collection.cost_explorer.cost_bases` is a non-empty subset of `unblended`, `amortized`, and `net`. Every cost series includes `provider` and `cost_basis`; do not sum across either label. Commitment and anomaly collectors expose account-level summaries only and never use plan IDs, anomaly IDs, service names, root causes, or raw AWS messages as labels.
+
+CUR requires a pre-created CUR 2.0 table and Athena workgroup. The exporter generates fixed read-only queries and polls Athena asynchronously; arbitrary SQL is not accepted. Configure `cur.tag_columns` to map each allowlisted public tag key to one validated CUR column. Failed, canceled, timed-out, over-limit, or malformed queries retain the previous snapshot.
+
 Important bounds:
 
 - `targets` and credential sources: 1–20.
@@ -122,8 +142,10 @@ Important bounds:
 - global and target burst: 1–5; RPS must be finite, positive, and no more than 10.
 - all `max_pages`: 1–200.
 - Cost Explorer and Organizations `series_limit`: at most 2000; Budgets: at most 500.
+- Tag keys: at most 20 per target; each `max_values` is 1..500 and overflow is aggregated.
+- CUR: at most 200 pages, 100,000 rows, and 20,000 series per collector refresh.
 - `collection.jitter_ratio`: finite and 0–0.5.
-- `collection.cost_explorer.cost_metric`: only `UnblendedCost`.
+- `collection.cost_explorer.cost_bases`: unique subset of `unblended`, `amortized`, and `net`.
 - `collection.cost_explorer.dimensions.overflow_label` must already be trimmed and must not collide with provider values.
 - `server.shutdown_timeout` and all other timeouts must be positive.
 
@@ -156,7 +178,7 @@ ce:GetCostAndUsage
 ce:GetCostForecast
 ```
 
-The exporter calls STS `GetCallerIdentity` for every final target identity; AWS does not normally require an explicit allow for that operation. Organizations targets additionally require `organizations:ListAccounts` and `organizations:DescribeOrganization`. Budgets targets require `budgets:ViewBudget`. A source principal requires `sts:AssumeRole` only for each exact configured role ARN.
+The exporter calls STS `GetCallerIdentity` for every final target identity; AWS does not normally require an explicit allow for that operation. Organizations targets additionally require `organizations:ListAccounts` and `organizations:DescribeOrganization`. Budgets targets require `budgets:ViewBudget`. Commitment and anomaly targets require the corresponding Cost Explorer read APIs. CUR targets require `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, Glue catalog reads, CUR table reads, and access to the configured Athena result S3 prefix. A source principal requires `sts:AssumeRole` only for each exact configured role ARN.
 
 See [examples/iam](examples/iam). Static access key values are never configuration fields; only environment-variable names may be configured.
 
@@ -164,13 +186,15 @@ See [examples/iam](examples/iam). Static access key values are never configurati
 
 Cost Explorer API requests are billed by AWS, currently USD 0.01 per billable request. Verify current AWS pricing before deployment.
 
-With total, service, region, and account collectors enabled, one unpaginated refresh uses 8 `GetCostAndUsage` logical operations: daily and month-to-date for four collectors. Forecast adds one `GetCostForecast`. For `T` targets and `P` average pages:
+With total, service, region, and account collectors enabled, one unpaginated refresh uses 8 `GetCostAndUsage` logical operations per configured cost basis. Forecast uses the first configured basis and adds one `GetCostForecast`. Each allowlisted Cost Explorer tag key adds two operations per basis. For `T` targets, `B` bases, `K` tag keys, and `P` average pages:
 
 ```text
-approximate Cost Explorer requests per refresh = T × (8 × P + forecast operations)
+approximate Cost Explorer requests per refresh = T * (((8 + 2*K) * B * P) + forecast operations + commitment/anomaly operations)
 ```
 
 SDK retries can produce additional billable HTTP attempts. `aws_cost_exporter_aws_api_requests_total` counts logical SDK operations, `aws_cost_exporter_pagination_pages_total` counts successfully read pages, and `aws_cost_exporter_aws_api_retries_total` counts authorized retry attempts. They are related but not interchangeable with the AWS invoice.
+
+Athena is billed by data scanned. The exporter submits fixed aggregate queries only on the configured CUR refresh interval, never during scrape. Partition the CUR table by billing period, use a dedicated workgroup with scan limits, and monitor Athena costs before reducing the default 24-hour interval.
 
 Both initial attempts and SDK retries acquire the global limiter and then the target limiter. A scheduled collector run is additionally bounded by `collection.failure_backoff.max_attempts`; after that budget is exhausted it waits for the next normal interval. Collectors for one target run serially so a slow account cannot occupy every global collection slot. Tighten target filters, increase refresh intervals, or reduce `max_pages` before raising rate limits. `series_limit` bounds Prometheus cardinality but does not reduce Cost Explorer pages.
 
@@ -185,13 +209,14 @@ curl http://localhost:8080/ready
 curl http://localhost:8080/version
 ```
 
-`/healthz` represents process liveness. `/ready` requires every enabled Cost Explorer collector, including forecast, on every required target to have a non-stale successful snapshot. Optional targets, Organizations, and Budgets do not gate readiness. Old snapshots remain available after refresh failures.
+`/healthz` represents process liveness. `/ready` requires every enabled Cost Explorer collector, including forecast, on every required target to have a non-stale successful snapshot. Optional targets, Organizations, Budgets, Commitments, Anomalies, Tags, and CUR do not gate readiness. Old snapshots remain available after refresh failures.
 
 Debug endpoints are disabled by default and never expose credentials or configuration secrets.
 
 ## Metrics
 
-Every business and target-scoped operational metric has a mandatory `target` label. Never sum different `currency` values.
+Every business and target-scoped operational metric has a mandatory `target` label. Cost metrics also use fixed `provider` and `cost_basis` labels. Never sum different providers, accounting bases, or currencies.
+Never sum different `currency` values; likewise, never sum different `provider` or `cost_basis` values.
 
 Cost metrics:
 
@@ -208,6 +233,23 @@ aws_cost_month_forecast_mean_amount
 aws_cost_month_forecast_lower_bound_amount
 aws_cost_month_forecast_upper_bound_amount
 aws_cost_account_info
+aws_cost_tag_daily_amount
+aws_cost_tag_month_to_date_amount
+```
+
+Commitment and anomaly metrics:
+
+```text
+aws_commitment_utilization_ratio
+aws_commitment_coverage_ratio
+aws_commitment_unused_hours
+aws_commitment_covered_spend_amount
+aws_commitment_on_demand_cost_amount
+aws_commitment_net_savings_amount
+aws_cost_anomaly_active
+aws_cost_anomaly_count
+aws_cost_anomaly_impact_amount
+aws_cost_anomaly_last_detected_timestamp_seconds
 ```
 
 Budgets metrics:

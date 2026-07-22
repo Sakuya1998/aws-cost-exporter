@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	promcollectors "github.com/prometheus/client_golang/prometheus/collectors"
 
+	athenaapi "github.com/sakuya1998/aws-cost-exporter/internal/aws/athena"
 	budgetapi "github.com/sakuya1998/aws-cost-exporter/internal/aws/budgets"
 	"github.com/sakuya1998/aws-cost-exporter/internal/aws/clientfactory"
 	ce "github.com/sakuya1998/aws-cost-exporter/internal/aws/costexplorer"
@@ -19,16 +20,21 @@ import (
 	"github.com/sakuya1998/aws-cost-exporter/internal/cache/memory"
 	basecollector "github.com/sakuya1998/aws-cost-exporter/internal/collector"
 	"github.com/sakuya1998/aws-cost-exporter/internal/collector/account"
+	anomalycollector "github.com/sakuya1998/aws-cost-exporter/internal/collector/anomaly"
 	budgetcollector "github.com/sakuya1998/aws-cost-exporter/internal/collector/budget"
+	commitmentcollector "github.com/sakuya1998/aws-cost-exporter/internal/collector/commitment"
+	curcollector "github.com/sakuya1998/aws-cost-exporter/internal/collector/cur"
 	"github.com/sakuya1998/aws-cost-exporter/internal/collector/forecast"
 	organizationcollector "github.com/sakuya1998/aws-cost-exporter/internal/collector/organizationmeta"
 	"github.com/sakuya1998/aws-cost-exporter/internal/collector/region"
 	"github.com/sakuya1998/aws-cost-exporter/internal/collector/service"
+	tagcollector "github.com/sakuya1998/aws-cost-exporter/internal/collector/tag"
 	"github.com/sakuya1998/aws-cost-exporter/internal/collector/total"
 	"github.com/sakuya1998/aws-cost-exporter/internal/config"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/tagcost"
 	"github.com/sakuya1998/aws-cost-exporter/internal/httpserver"
 	appmetrics "github.com/sakuya1998/aws-cost-exporter/internal/metrics"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
@@ -126,7 +132,7 @@ func buildJobs(value config.Config, factory *clientfactory.Factory, telemetry *a
 			if instrumentErr != nil {
 				return nil, nil, instrumentErr
 			}
-			usage, usageErr := ce.NewUsageAdapterForTarget(target, instrumented, value.Collection.CostExplorer.MaxPages, value.Collection.CostExplorer.CostMetric, telemetry)
+			usage, usageErr := ce.NewUsageAdapterForTarget(target, instrumented, value.Collection.CostExplorer.MaxPages, "UnblendedCost", telemetry)
 			if usageErr != nil {
 				return nil, nil, usageErr
 			}
@@ -134,7 +140,7 @@ func buildJobs(value config.Config, factory *clientfactory.Factory, telemetry *a
 			if forecastErr != nil {
 				return nil, nil, forecastErr
 			}
-			reader := filteredReader{UsageAdapter: usage, ForecastAdapter: forecastReader, filters: targetConfig.CostExplorer.Filters}
+			reader := filteredReader{UsageAdapter: usage, ForecastAdapter: forecastReader, filters: targetConfig.CostExplorer.Filters, bases: configuredCostBases(value.Collection.CostExplorer.CostBases)}
 			costCollectors, collectorErr := buildCostCollectors(target, reader, targetConfig, value, telemetry)
 			if collectorErr != nil {
 				return nil, nil, collectorErr
@@ -144,6 +150,18 @@ func buildJobs(value config.Config, factory *clientfactory.Factory, telemetry *a
 				if targetConfig.Required {
 					required = append(required, collector.ID())
 				}
+			}
+			if targetConfig.Tags.Enabled {
+				tagUsage, tagUsageErr := ce.NewUsageAdapterForTarget(target, instrumented, value.Collection.Tags.MaxPages, "UnblendedCost", telemetry)
+				if tagUsageErr != nil {
+					return nil, nil, tagUsageErr
+				}
+				tagReader := filteredReader{UsageAdapter: tagUsage, ForecastAdapter: forecastReader, filters: targetConfig.CostExplorer.Filters, bases: configuredCostBases(value.Collection.CostExplorer.CostBases)}
+				collector, collectorErr := tagcollector.New(target, tagReader, configuredCostBases(value.Collection.CostExplorer.CostBases), targetConfig.Tags.Keys, value.Collection.Tags.SeriesLimit, value.Collection.CostExplorer.Dimensions.OverflowLabel, targetOverflowObserver{target: target, telemetry: telemetry})
+				if collectorErr != nil {
+					return nil, nil, collectorErr
+				}
+				jobs = append(jobs, scheduler.Job{Collector: verifiedCollector{Collector: collector, verifier: clients.Verifier}, Interval: value.Collection.Tags.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
 			}
 		}
 		if targetConfig.Organizations.Enabled {
@@ -174,6 +192,39 @@ func buildJobs(value config.Config, factory *clientfactory.Factory, telemetry *a
 				return nil, nil, collectorErr
 			}
 			jobs = append(jobs, scheduler.Job{Collector: verifiedCollector{Collector: collector, verifier: clients.Verifier}, Interval: value.Collection.Budgets.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
+		}
+		if targetConfig.Commitments.Enabled {
+			reader, readerErr := ce.NewCommitmentReader(target, clients.CostExplorer, value.Collection.Commitments.MaxPages, telemetry, clients.Retryer)
+			if readerErr != nil {
+				return nil, nil, readerErr
+			}
+			collector, collectorErr := commitmentcollector.New(target, reader, value.Collection.Commitments.SeriesLimit)
+			if collectorErr != nil {
+				return nil, nil, collectorErr
+			}
+			jobs = append(jobs, scheduler.Job{Collector: verifiedCollector{Collector: collector, verifier: clients.Verifier}, Interval: value.Collection.Commitments.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
+		}
+		if targetConfig.Anomalies.Enabled {
+			reader, readerErr := ce.NewAnomalyReader(target, clients.CostExplorer, value.Collection.Anomalies.MaxPages, telemetry, clients.Retryer)
+			if readerErr != nil {
+				return nil, nil, readerErr
+			}
+			collector, collectorErr := anomalycollector.New(target, reader, value.Collection.Anomalies.SeriesLimit)
+			if collectorErr != nil {
+				return nil, nil, collectorErr
+			}
+			jobs = append(jobs, scheduler.Job{Collector: verifiedCollector{Collector: collector, verifier: clients.Verifier}, Interval: value.Collection.Anomalies.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
+		}
+		if targetConfig.CUR.Enabled {
+			reader, readerErr := athenaapi.NewReader(target, clients.Athena, targetConfig.CUR, value.Collection.CUR.MaxPages, value.Collection.CUR.MaxRows, telemetry, clients.Retryer)
+			if readerErr != nil {
+				return nil, nil, readerErr
+			}
+			collector, collectorErr := curcollector.New(target, reader, configuredCostBases(value.Collection.CostExplorer.CostBases), targetConfig.Tags.Enabled, value.Collection.CUR.SeriesLimit, value.Collection.Tags.SeriesLimit, targetConfig.Tags.Keys, value.Collection.CostExplorer.Dimensions.OverflowLabel, targetOverflowObserver{target: target, telemetry: telemetry})
+			if collectorErr != nil {
+				return nil, nil, collectorErr
+			}
+			jobs = append(jobs, scheduler.Job{Collector: verifiedCollector{Collector: collector, verifier: clients.Verifier}, Interval: value.Collection.CUR.RefreshInterval, StartupRefresh: value.Collection.StartupRefresh})
 		}
 	}
 	return jobs, required, nil
@@ -227,7 +278,7 @@ func buildCostCollectors(target identity.TargetID, reader filteredReader, target
 }
 
 func configuredCollectorIDs(value config.Config) []identity.CollectorID {
-	ids := make([]identity.CollectorID, 0, len(value.Targets)*7)
+	ids := make([]identity.CollectorID, 0, len(value.Targets)*10)
 	for _, targetConfig := range value.Targets {
 		target := identity.TargetID(targetConfig.Name)
 		if targetConfig.CostExplorer.Enabled {
@@ -243,12 +294,24 @@ func configuredCollectorIDs(value config.Config) []identity.CollectorID {
 					ids = append(ids, identity.CollectorID{Target: target, Name: item.name})
 				}
 			}
+			if targetConfig.Tags.Enabled {
+				ids = append(ids, identity.CollectorID{Target: target, Name: tagcollector.Name})
+			}
 		}
 		if targetConfig.Organizations.Enabled {
 			ids = append(ids, identity.CollectorID{Target: target, Name: organizationcollector.Name})
 		}
 		if targetConfig.Budgets.Enabled {
 			ids = append(ids, identity.CollectorID{Target: target, Name: budgetcollector.Name})
+		}
+		if targetConfig.Commitments.Enabled {
+			ids = append(ids, identity.CollectorID{Target: target, Name: commitmentcollector.Name})
+		}
+		if targetConfig.Anomalies.Enabled {
+			ids = append(ids, identity.CollectorID{Target: target, Name: anomalycollector.Name})
+		}
+		if targetConfig.CUR.Enabled {
+			ids = append(ids, identity.CollectorID{Target: target, Name: curcollector.Name})
 		}
 	}
 	return ids
@@ -277,19 +340,54 @@ type filteredReader struct {
 	*ce.UsageAdapter
 	*ce.ForecastAdapter
 	filters config.FiltersConfig
+	bases   []cost.Basis
 }
 
 func (reader filteredReader) ReadCosts(ctx context.Context, query ports.CostQuery) ([]cost.Cost, error) {
 	query.LinkedAccountIDs = append([]string(nil), reader.filters.LinkedAccountIDs...)
 	query.Services = append([]string(nil), reader.filters.Services...)
 	query.Regions = append([]string(nil), reader.filters.Regions...)
-	return reader.UsageAdapter.ReadCosts(ctx, query)
+	bases := reader.bases
+	if len(bases) == 0 {
+		bases = []cost.Basis{cost.BasisUnblended}
+	}
+	var values []cost.Cost
+	for _, basis := range bases {
+		current := query
+		current.Basis = basis
+		result, err := reader.UsageAdapter.ReadCosts(ctx, current)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, result...)
+	}
+	return values, nil
 }
 func (reader filteredReader) ReadForecast(ctx context.Context, query ports.ForecastQuery) (cost.Forecast, error) {
 	query.LinkedAccountIDs = append([]string(nil), reader.filters.LinkedAccountIDs...)
 	query.Services = append([]string(nil), reader.filters.Services...)
 	query.Regions = append([]string(nil), reader.filters.Regions...)
+	if len(reader.bases) > 0 {
+		query.Basis = reader.bases[0]
+	} else {
+		query.Basis = cost.BasisUnblended
+	}
 	return reader.ForecastAdapter.ReadForecast(ctx, query)
+}
+
+func (reader filteredReader) ReadTagCosts(ctx context.Context, query ports.CostQuery, tagKey string) ([]tagcost.Cost, error) {
+	query.LinkedAccountIDs = append([]string(nil), reader.filters.LinkedAccountIDs...)
+	query.Services = append([]string(nil), reader.filters.Services...)
+	query.Regions = append([]string(nil), reader.filters.Regions...)
+	return reader.UsageAdapter.ReadTagCosts(ctx, query, tagKey)
+}
+
+func configuredCostBases(values []string) []cost.Basis {
+	result := make([]cost.Basis, 0, len(values))
+	for _, value := range values {
+		result = append(result, cost.Basis(value))
+	}
+	return result
 }
 
 func unfilteredGroupedCollectors(value config.Config, target config.TargetConfig) bool {

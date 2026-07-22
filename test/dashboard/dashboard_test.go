@@ -57,6 +57,12 @@ func TestDashboardContainsRequiredPanelsAndVariables(t *testing.T) {
 			t.Errorf("variable %s is missing label_values/includeAll", name)
 		}
 	}
+	for _, name := range []string{"provider", "cost_basis"} {
+		item, exists := variables[name]
+		if !exists || item.IncludeAll || !strings.Contains(item.Query.Query, "label_values(") {
+			t.Errorf("single-select variable %s is missing or unsafe", name)
+		}
+	}
 	for _, name := range []string{"job", "instance", "target"} {
 		if !strings.Contains(variables[name].Query.Query, "aws_cost_exporter_collector_up") {
 			t.Errorf("base variable %s depends on an optional business collector: %s", name, variables[name].Query.Query)
@@ -75,6 +81,7 @@ func TestDashboardContainsRequiredPanelsAndVariables(t *testing.T) {
 		"AWS API requests": "timeseries", "AWS API error ratio": "timeseries",
 		"AWS API p99 latency": "timeseries", "AWS API retries": "timeseries",
 		"Skipped refreshes": "timeseries", "Cost data semantics": "text",
+		"Commitment utilization and coverage": "timeseries", "Cost anomalies": "timeseries",
 	}
 	for _, item := range value.Panels {
 		if want, exists := required[item.Title]; exists {
@@ -118,8 +125,11 @@ func TestDashboardPromQLUsesOnlyRealCurrencySafeMetrics(t *testing.T) {
 			if strings.Contains(query.Expr, "aws_cost_") &&
 				!strings.Contains(query.Expr, "aws_cost_exporter_") {
 				filters := []string{`job=~"$job"`, `instance=~"$instance"`, `target=~"$target"`}
-				if !strings.Contains(query.Expr, "aws_cost_account_info") {
+				if strings.Contains(query.Expr, "_amount") {
 					filters = append(filters, `currency=~"$currency"`)
+				}
+				if strings.Contains(query.Expr, "aws_cost_daily_amount") || strings.Contains(query.Expr, "aws_cost_month_") || strings.Contains(query.Expr, "aws_cost_service_") || strings.Contains(query.Expr, "aws_cost_region_") || strings.Contains(query.Expr, "aws_cost_account_") && !strings.Contains(query.Expr, "account_info") {
+					filters = append(filters, `provider="$provider"`, `cost_basis="$cost_basis"`)
 				}
 				for _, filter := range filters {
 					if !strings.Contains(query.Expr, filter) {
@@ -128,7 +138,7 @@ func TestDashboardPromQLUsesOnlyRealCurrencySafeMetrics(t *testing.T) {
 				}
 			}
 			if strings.HasPrefix(item.Title, "Top 10 ") &&
-				!strings.Contains(query.Expr, "topk by (target, currency)") {
+				!strings.Contains(query.Expr, "topk by (target, provider, cost_basis, currency)") {
 				t.Errorf("panel %q ranks different currencies together: %s", item.Title, query.Expr)
 			}
 		}
@@ -156,8 +166,8 @@ func TestMonthEndEstimateDoesNotCountTodayTwice(t *testing.T) {
 			for _, term := range []string{
 				"aws_cost_month_to_date_amount",
 				"aws_cost_daily_amount",
-				" - sum by (target, currency)",
-				" + sum by (target, currency)",
+				" - sum by (target, provider, cost_basis, currency)",
+				" + sum by (target, provider, cost_basis, currency)",
 			} {
 				if !strings.Contains(query.Expr, term) {
 					t.Errorf("panel %q forecast query lacks overlap-safe term %q: %s", item.Title, term, query.Expr)
@@ -190,9 +200,11 @@ func metricContracts(t *testing.T) map[string]map[string]struct{} {
 	}
 	costPattern := regexp.MustCompile(`costDesc\("([^"]+)",\s*"[^"]*",\s*"([^"]*)"\)`)
 	for _, match := range costPattern.FindAllStringSubmatch(string(costSource), -1) {
-		result["aws_cost_"+match[1]] = labels("target", "currency", match[2])
+		result["aws_cost_"+match[1]] = labels("target", "provider", "cost_basis", "currency", match[2])
 	}
 	result["aws_cost_account_info"] = labels("target", "linked_account_id", "account_name", "account_status")
+	result["aws_cost_anomaly_count"] = labels("target")
+	result["aws_cost_anomaly_impact_amount"] = labels("target", "currency")
 	exporterSource, err := os.ReadFile(filepath.Join("..", "..", "internal", "metrics", "exporter.go"))
 	if err != nil {
 		t.Fatalf("read exporter metric contract: %v", err)

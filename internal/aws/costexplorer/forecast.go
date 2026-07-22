@@ -36,9 +36,13 @@ func NewForecastAdapter(api ForecastAPI) (*ForecastAdapter, error) {
 
 // ReadForecast requests one monthly result and maps it to the domain.
 func (adapter *ForecastAdapter) ReadForecast(ctx context.Context, query ports.ForecastQuery) (cost.Forecast, error) {
+	metric, err := forecastMetric(query.Basis)
+	if err != nil {
+		return cost.Forecast{}, err
+	}
 	output, err := adapter.api.GetCostForecast(ctx, &awscostexplorer.GetCostForecastInput{
 		Granularity:             cetypes.GranularityMonthly,
-		Metric:                  cetypes.MetricUnblendedCost,
+		Metric:                  metric,
 		PredictionIntervalLevel: aws.Int32(int32(query.PredictionInterval)), // #nosec G115 -- the collector bounds this internal value to 80..99.
 		Filter: dimensionFilter(
 			query.LinkedAccountIDs, query.Services, query.Regions,
@@ -52,6 +56,19 @@ func (adapter *ForecastAdapter) ReadForecast(ctx context.Context, query ports.Fo
 		return cost.Forecast{}, ClassifyError(err)
 	}
 	return MapForecast(output, query)
+}
+
+func forecastMetric(basis cost.Basis) (cetypes.Metric, error) {
+	switch cost.NormalizeBasis(basis) {
+	case cost.BasisUnblended:
+		return cetypes.MetricUnblendedCost, nil
+	case cost.BasisAmortized:
+		return cetypes.MetricAmortizedCost, nil
+	case cost.BasisNet:
+		return cetypes.MetricNetUnblendedCost, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported forecast cost basis", ErrInvalidResponse)
+	}
 }
 
 // MapForecast validates one AWS monthly forecast result.
@@ -88,6 +105,6 @@ func MapForecast(output *awscostexplorer.GetCostForecastOutput, query ports.Fore
 		return cost.Forecast{}, fmt.Errorf("%w: prediction bounds are unordered", ErrInvalidResponse)
 	}
 	return cost.Forecast{
-		Period: query.Period, Mean: mean, LowerBound: lower, UpperBound: upper,
+		Provider: cost.ProviderCostExplorer, Basis: cost.NormalizeBasis(query.Basis), Period: query.Period, Mean: mean, LowerBound: lower, UpperBound: upper,
 	}, nil
 }

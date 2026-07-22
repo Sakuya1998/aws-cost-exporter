@@ -61,7 +61,7 @@ func TestValidateCredentialSources(t *testing.T) {
 	}
 }
 
-func TestValidateEnforcesV02Invariants(t *testing.T) {
+func TestValidateEnforcesCoreInvariants(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name, path string
@@ -148,5 +148,38 @@ func TestValidateDirectAndOptionalTargets(t *testing.T) {
 	value.Targets[1].Credentials.AssumeRole = nil
 	if err := config.Validate(value); err == nil || !strings.Contains(err.Error(), "direct target") {
 		t.Fatalf("Validate(two direct)=%v", err)
+	}
+}
+
+func TestValidateV03CostBasesTagsAndCUR(t *testing.T) {
+	value := validConfig()
+	value.Collection.CostExplorer.CostBases = []string{"unblended", "amortized", "net"}
+	value.Targets[0].Tags = config.TargetTagsConfig{Enabled: true, Keys: []config.TagKeyConfig{{Key: "Environment", MaxValues: 20}}}
+	value.Targets[0].CUR = config.TargetCURConfig{Enabled: true, Database: "billing", Table: "cur2", Workgroup: "exporter", OutputLocation: "s3://results/exporter/", QueryTimeout: time.Minute, PollInterval: time.Second, TagColumns: []config.CURTagColumn{{Key: "Environment", Column: "resource_tags_user_environment"}}}
+	if err := config.Validate(value); err != nil {
+		t.Fatalf("valid v0.3 config: %v", err)
+	}
+	for _, test := range []struct {
+		name, path string
+		mutate     func(*config.Config)
+	}{
+		{"duplicate basis", "cost_bases", func(v *config.Config) { v.Collection.CostExplorer.CostBases = []string{"net", "net"} }},
+		{"invalid basis", "cost_bases", func(v *config.Config) { v.Collection.CostExplorer.CostBases = []string{"blended"} }},
+		{"unsafe CUR column", "tag_columns", func(v *config.Config) { v.Targets[0].CUR.TagColumns[0].Column = "tag; DROP TABLE cur2" }},
+		{"missing CUR tag mapping", "matching cur.tag_columns", func(v *config.Config) { v.Targets[0].CUR.TagColumns = nil }},
+		{"tag values", "max_values", func(v *config.Config) { v.Targets[0].Tags.Keys[0].MaxValues = 501 }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			current := value
+			current.Collection.CostExplorer.CostBases = append([]string(nil), value.Collection.CostExplorer.CostBases...)
+			current.Targets = append([]config.TargetConfig(nil), value.Targets...)
+			current.Targets[0].Tags.Keys = append([]config.TagKeyConfig(nil), value.Targets[0].Tags.Keys...)
+			current.Targets[0].CUR.TagColumns = append([]config.CURTagColumn(nil), value.Targets[0].CUR.TagColumns...)
+			test.mutate(&current)
+			err := config.Validate(current)
+			if err == nil || !strings.Contains(err.Error(), test.path) {
+				t.Fatalf("Validate()=%v want %q", err, test.path)
+			}
+		})
 	}
 }

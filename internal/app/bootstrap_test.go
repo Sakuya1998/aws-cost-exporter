@@ -62,6 +62,68 @@ func TestConfiguredCollectorIDsAndRequiredTargets(t *testing.T) {
 	}
 }
 
+func TestConfiguredCollectorIDsIncludesOptionalV03Collectors(t *testing.T) {
+	value := config.Default()
+	value.Targets = []config.TargetConfig{{
+		Name: "payer", AccountID: "444455556666", Required: true,
+		Credentials:   config.TargetCredentialsConfig{Source: "runtime"},
+		CostExplorer:  config.TargetCostExplorerConfig{Enabled: true},
+		Tags:          config.TargetTagsConfig{Enabled: true, Keys: []config.TagKeyConfig{{Key: "Environment", MaxValues: 3}}},
+		Organizations: config.TargetOrganizationsConfig{Enabled: true},
+		Budgets:       config.TargetBudgetsConfig{Enabled: true},
+		Commitments:   config.TargetCommitmentsConfig{Enabled: true},
+		Anomalies:     config.TargetAnomaliesConfig{Enabled: true},
+		CUR:           config.TargetCURConfig{Enabled: true},
+	}}
+	got := configuredCollectorIDs(value)
+	for _, name := range []string{"total", "service", "region", "account", "forecast", "tags", "organizations", "budgets", "commitments", "anomalies", "cur"} {
+		found := false
+		for _, id := range got {
+			if id.Name == name && id.Target == "payer" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("collector %q missing from %v", name, got)
+		}
+	}
+}
+
+func TestBuildCostCollectorsUsesAllEnabledDimensions(t *testing.T) {
+	value := config.Default()
+	target := config.TargetConfig{Name: "payer", CostExplorer: config.TargetCostExplorerConfig{Enabled: true}}
+	collectors, err := buildCostCollectors("payer", filteredReader{}, target, value, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(collectors) != 5 {
+		t.Fatalf("collectors=%d", len(collectors))
+	}
+	for _, collector := range collectors {
+		if collector.ID().Target != "payer" {
+			t.Fatalf("collector target=%v", collector.ID())
+		}
+	}
+	value.Collection.CostExplorer.Collectors = config.CollectorsConfig{}
+	collectors, err = buildCostCollectors("payer", filteredReader{}, target, value, nil)
+	if err != nil || len(collectors) != 0 {
+		t.Fatalf("disabled collectors=%v err=%v", collectors, err)
+	}
+}
+
+func TestOrganizationPoliciesAndCostBasisHelpers(t *testing.T) {
+	value := config.Default()
+	value.Targets = []config.TargetConfig{{Name: "payer", Organizations: config.TargetOrganizationsConfig{Enabled: true, AccountIDs: []string{"444455556666"}}}, {Name: "other"}}
+	policies := organizationPolicies(value)
+	if len(policies) != 1 || policies["payer"].SeriesLimit != value.Collection.Organizations.SeriesLimit || len(policies["payer"].AccountIDs) != 1 {
+		t.Fatalf("policies=%v", policies)
+	}
+	if got := configuredCostBases([]string{"unblended", "amortized", "net"}); len(got) != 3 || string(got[1]) != "amortized" {
+		t.Fatalf("bases=%v", got)
+	}
+}
+
 func TestUnfilteredGroupedCollectorsUsesPerTargetFilters(t *testing.T) {
 	value := config.Default()
 	target := config.TargetConfig{Name: "payer", CostExplorer: config.TargetCostExplorerConfig{Enabled: true}}

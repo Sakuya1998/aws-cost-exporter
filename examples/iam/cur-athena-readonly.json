@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RunBoundedCURQueries",
+      "Effect": "Allow",
+      "Action": ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults"],
+      "Resource": "arn:aws:athena:us-east-1:444455556666:workgroup/aws-cost-exporter"
+    },
+    {
+      "Sid": "ReadCURCatalog",
+      "Effect": "Allow",
+      "Action": ["glue:GetDatabase", "glue:GetTable", "glue:GetPartitions"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadCURAndQueryResults",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:GetBucketLocation"],
+      "Resource": ["arn:aws:s3:::example-cur-bucket/*", "arn:aws:s3:::example-athena-results/aws-cost-exporter/*"]
+    }
+  ]
+}

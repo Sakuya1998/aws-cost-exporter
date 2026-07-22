@@ -1,6 +1,6 @@
 # HELP aws_cost_daily_amount Current UTC billing day accumulated cost.
 # TYPE aws_cost_daily_amount gauge
-aws_cost_daily_amount{currency="USD",target="e2e"} 11
+aws_cost_daily_amount{cost_basis="unblended",currency="USD",provider="cost_explorer",target="e2e"} 11
 # HELP aws_cost_month_to_date_amount Current UTC month-to-date accumulated cost.
 # TYPE aws_cost_month_to_date_amount gauge
-aws_cost_month_to_date_amount{currency="USD",target="e2e"} 11
+aws_cost_month_to_date_amount{cost_basis="unblended",currency="USD",provider="cost_explorer",target="e2e"} 11

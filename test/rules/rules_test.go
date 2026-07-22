@@ -43,7 +43,7 @@ func TestRulesContainSafeRecordingsAndAlerts(t *testing.T) {
 		}
 	}
 	requireExpr(t, records, "aws_cost:month_to_date:sum_by_currency",
-		"sum by (job, instance, target, currency) (aws_cost_month_to_date_amount)")
+		"sum by (job, instance, target, provider, cost_basis, currency) (aws_cost_month_to_date_amount)")
 	requireExpr(t, records, "aws_cost_exporter:max_cache_age_seconds",
 		"max by (job, instance, target) (aws_cost_exporter_cache_age_seconds)")
 	requireAlert(t, alerts, "AWSCostExporterDataStale", "30m", "aws_cost_exporter:max_cache_age_seconds > 43200")
@@ -61,9 +61,9 @@ func TestRulesContainSafeRecordingsAndAlerts(t *testing.T) {
 	text := string(content)
 	for _, fragment := range []string{
 		"# - alert: AWSMonthlyCostForecastAboveBudget",
-		"aws_cost_month_to_date_amount{currency=\"USD\"}",
-		"- aws_cost_daily_amount{currency=\"USD\"}",
-		"+ aws_cost_month_forecast_mean_amount{currency=\"USD\"}",
+		"aws_cost_month_to_date_amount{provider=\"cost_explorer\",cost_basis=\"unblended\",currency=\"USD\"}",
+		"- aws_cost_daily_amount{provider=\"cost_explorer\",cost_basis=\"unblended\",currency=\"USD\"}",
+		"+ aws_cost_month_forecast_mean_amount{provider=\"cost_explorer\",cost_basis=\"unblended\",currency=\"USD\"}",
 	} {
 		if !strings.Contains(text, fragment) {
 			t.Errorf("disabled budget example lacks %q", fragment)

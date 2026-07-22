@@ -69,6 +69,8 @@ type aggregateKey struct {
 	kind     cost.DimensionKind
 	value    string
 	currency string
+	provider cost.Provider
+	basis    cost.Basis
 }
 
 // aggregateMonthToDate sums daily Cost Explorer rows into one observation per
@@ -83,10 +85,12 @@ func aggregateMonthToDate(costs []cost.Cost, period cost.Period) ([]cost.Cost, e
 			kind:     entry.Dimension.Kind(),
 			value:    entry.Dimension.Value(),
 			currency: entry.Amount.Currency(),
+			provider: entry.Provider, basis: entry.Basis,
 		}
 		existing, exists := totals[key]
 		if !exists {
 			totals[key] = cost.Cost{
+				Provider: entry.Provider, Basis: entry.Basis,
 				Window:    cost.WindowMonthToDate,
 				Period:    period,
 				Dimension: entry.Dimension,
@@ -148,5 +152,16 @@ func mapCost(period cost.Period, window cost.Window, dimension cost.Dimension, m
 	if err != nil {
 		return cost.Cost{}, err
 	}
-	return cost.Cost{Window: window, Period: period, Dimension: dimension, Amount: amount}, nil
+	return cost.Cost{Provider: cost.ProviderCostExplorer, Basis: cost.NormalizeBasis(cost.Basis(metricBasis(costMetric))), Window: window, Period: period, Dimension: dimension, Amount: amount}, nil
+}
+
+func metricBasis(metric string) string {
+	switch metric {
+	case "AmortizedCost":
+		return string(cost.BasisAmortized)
+	case "NetUnblendedCost":
+		return string(cost.BasisNet)
+	default:
+		return string(cost.BasisUnblended)
+	}
 }

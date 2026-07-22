@@ -9,7 +9,7 @@ const (
 	CredentialSourceStaticEnv    = "static_env"
 )
 
-// Config is the complete v0.2 application configuration.
+// Config is the complete v0.3 application configuration.
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server" yaml:"server"`
 	Log        LogConfig        `mapstructure:"log" yaml:"log"`
@@ -76,6 +76,7 @@ type EndpointsConfig struct {
 	CostExplorer  string `mapstructure:"cost_explorer" yaml:"cost_explorer"`
 	Organizations string `mapstructure:"organizations" yaml:"organizations"`
 	Budgets       string `mapstructure:"budgets" yaml:"budgets"`
+	Athena        string `mapstructure:"athena" yaml:"athena"`
 }
 
 // RetryConfig controls AWS SDK request retries.
@@ -102,6 +103,10 @@ type TargetConfig struct {
 	CostExplorer  TargetCostExplorerConfig  `mapstructure:"cost_explorer" yaml:"cost_explorer"`
 	Organizations TargetOrganizationsConfig `mapstructure:"organizations" yaml:"organizations"`
 	Budgets       TargetBudgetsConfig       `mapstructure:"budgets" yaml:"budgets"`
+	Commitments   TargetCommitmentsConfig   `mapstructure:"commitments" yaml:"commitments"`
+	Anomalies     TargetAnomaliesConfig     `mapstructure:"anomalies" yaml:"anomalies"`
+	CUR           TargetCURConfig           `mapstructure:"cur" yaml:"cur"`
+	Tags          TargetTagsConfig          `mapstructure:"tags" yaml:"tags"`
 }
 
 // TargetCredentialsConfig binds a target to a source and optional role.
@@ -135,6 +140,39 @@ type TargetBudgetsConfig struct {
 	Names   []string `mapstructure:"names" yaml:"names"`
 }
 
+type TargetCommitmentsConfig struct {
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
+}
+type TargetAnomaliesConfig struct {
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
+}
+
+type TargetCURConfig struct {
+	Enabled        bool           `mapstructure:"enabled" yaml:"enabled"`
+	Database       string         `mapstructure:"database" yaml:"database"`
+	Table          string         `mapstructure:"table" yaml:"table"`
+	Workgroup      string         `mapstructure:"workgroup" yaml:"workgroup"`
+	OutputLocation string         `mapstructure:"output_location" yaml:"output_location"`
+	QueryTimeout   time.Duration  `mapstructure:"query_timeout" yaml:"query_timeout"`
+	PollInterval   time.Duration  `mapstructure:"poll_interval" yaml:"poll_interval"`
+	TagColumns     []CURTagColumn `mapstructure:"tag_columns" yaml:"tag_columns"`
+}
+
+type CURTagColumn struct {
+	Key    string `mapstructure:"key" yaml:"key"`
+	Column string `mapstructure:"column" yaml:"column"`
+}
+
+type TargetTagsConfig struct {
+	Enabled bool           `mapstructure:"enabled" yaml:"enabled"`
+	Keys    []TagKeyConfig `mapstructure:"keys" yaml:"keys"`
+}
+
+type TagKeyConfig struct {
+	Key       string `mapstructure:"key" yaml:"key"`
+	MaxValues int    `mapstructure:"max_values" yaml:"max_values"`
+}
+
 // FiltersConfig restricts Cost Explorer query dimensions.
 type FiltersConfig struct {
 	LinkedAccountIDs []string `mapstructure:"linked_account_ids" yaml:"linked_account_ids"`
@@ -152,15 +190,44 @@ type CollectionConfig struct {
 	CostExplorer    CollectionCostExplorerConfig  `mapstructure:"cost_explorer" yaml:"cost_explorer"`
 	Organizations   CollectionOrganizationsConfig `mapstructure:"organizations" yaml:"organizations"`
 	Budgets         CollectionBudgetsConfig       `mapstructure:"budgets" yaml:"budgets"`
+	Commitments     CollectionCommitmentsConfig   `mapstructure:"commitments" yaml:"commitments"`
+	Anomalies       CollectionAnomaliesConfig     `mapstructure:"anomalies" yaml:"anomalies"`
+	Tags            CollectionTagsConfig          `mapstructure:"tags" yaml:"tags"`
+	CUR             CollectionCURConfig           `mapstructure:"cur" yaml:"cur"`
 }
 
 // CollectionCostExplorerConfig controls shared Cost Explorer semantics.
 type CollectionCostExplorerConfig struct {
-	CostMetric         string           `mapstructure:"cost_metric" yaml:"cost_metric"`
+	CostBases          []string         `mapstructure:"cost_bases" yaml:"cost_bases"`
 	MaxPages           int              `mapstructure:"max_pages" yaml:"max_pages"`
 	PredictionInterval int              `mapstructure:"prediction_interval" yaml:"prediction_interval"`
 	Collectors         CollectorsConfig `mapstructure:"collectors" yaml:"collectors"`
 	Dimensions         DimensionsConfig `mapstructure:"dimensions" yaml:"dimensions"`
+}
+
+type CollectionCommitmentsConfig struct {
+	RefreshInterval time.Duration `mapstructure:"refresh_interval" yaml:"refresh_interval"`
+	MaxPages        int           `mapstructure:"max_pages" yaml:"max_pages"`
+	SeriesLimit     int           `mapstructure:"series_limit" yaml:"series_limit"`
+}
+
+type CollectionAnomaliesConfig struct {
+	RefreshInterval time.Duration `mapstructure:"refresh_interval" yaml:"refresh_interval"`
+	MaxPages        int           `mapstructure:"max_pages" yaml:"max_pages"`
+	SeriesLimit     int           `mapstructure:"series_limit" yaml:"series_limit"`
+}
+
+type CollectionTagsConfig struct {
+	RefreshInterval time.Duration `mapstructure:"refresh_interval" yaml:"refresh_interval"`
+	MaxPages        int           `mapstructure:"max_pages" yaml:"max_pages"`
+	SeriesLimit     int           `mapstructure:"series_limit" yaml:"series_limit"`
+}
+
+type CollectionCURConfig struct {
+	RefreshInterval time.Duration `mapstructure:"refresh_interval" yaml:"refresh_interval"`
+	MaxPages        int           `mapstructure:"max_pages" yaml:"max_pages"`
+	MaxRows         int           `mapstructure:"max_rows" yaml:"max_rows"`
+	SeriesLimit     int           `mapstructure:"series_limit" yaml:"series_limit"`
 }
 
 // CollectorsConfig enables built-in Cost Explorer collector plugins.
@@ -239,12 +306,16 @@ func Default() Config {
 			MaxConcurrency: 4,
 			FailureBackoff: BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: 30 * time.Minute, Multiplier: 2},
 			CostExplorer: CollectionCostExplorerConfig{
-				CostMetric: "UnblendedCost", MaxPages: 50, PredictionInterval: 80,
+				CostBases: []string{"unblended"}, MaxPages: 50, PredictionInterval: 80,
 				Collectors: CollectorsConfig{Total: true, Service: true, Region: true, Account: true, Forecast: true},
 				Dimensions: DimensionsConfig{SeriesLimit: 1000, Overflow: "aggregate", OverflowLabel: "__other__"},
 			},
 			Organizations: CollectionOrganizationsConfig{RefreshInterval: 24 * time.Hour, MaxPages: 20, SeriesLimit: 1000},
 			Budgets:       CollectionBudgetsConfig{RefreshInterval: 6 * time.Hour, MaxPages: 20, SeriesLimit: 100},
+			Commitments:   CollectionCommitmentsConfig{RefreshInterval: 24 * time.Hour, MaxPages: 20, SeriesLimit: 20},
+			Anomalies:     CollectionAnomaliesConfig{RefreshInterval: 6 * time.Hour, MaxPages: 20, SeriesLimit: 10},
+			Tags:          CollectionTagsConfig{RefreshInterval: 6 * time.Hour, MaxPages: 50, SeriesLimit: 500},
+			CUR:           CollectionCURConfig{RefreshInterval: 24 * time.Hour, MaxPages: 50, MaxRows: 5000, SeriesLimit: 2000},
 		},
 		Cache:     CacheConfig{FreshnessTTL: 12 * time.Hour, StaleAfter: 24 * time.Hour},
 		Telemetry: TelemetryConfig{IncludeGoCollector: true, IncludeProcessCollector: true},

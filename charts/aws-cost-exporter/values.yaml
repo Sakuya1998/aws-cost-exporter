@@ -76,6 +76,15 @@ config:
           source: runtime
         cost_explorer:
           enabled: true
+        commitments:
+          enabled: false
+        anomalies:
+          enabled: false
+        tags:
+          enabled: false
+          keys: []
+        cur:
+          enabled: false
     collection:
       failure_backoff:
         max_attempts: 3
@@ -83,7 +92,25 @@ config:
         max: 30m
         multiplier: 2
       cost_explorer:
+        cost_bases: [unblended]
         max_pages: 50
+      commitments:
+        refresh_interval: 24h
+        max_pages: 20
+        series_limit: 20
+      anomalies:
+        refresh_interval: 6h
+        max_pages: 20
+        series_limit: 10
+      tags:
+        refresh_interval: 6h
+        max_pages: 50
+        series_limit: 500
+      cur:
+        refresh_interval: 24h
+        max_pages: 50
+        max_rows: 5000
+        series_limit: 2000
 
 awsSharedConfig:
   existingSecret: ""

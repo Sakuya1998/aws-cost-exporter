@@ -1,4 +1,4 @@
-# v0.2 uses one explicit target schema. Replace account_id with the account
+# v0.3 uses one explicit target schema. Replace account_id with the account
 # represented by the default credential chain before starting the exporter.
 server:
   listen_address: ":8080"
@@ -37,6 +37,7 @@ aws:
     cost_explorer: ""
     organizations: ""
     budgets: ""
+    athena: ""
   retry:
     max_attempts: 5
     base_delay: 1s
@@ -70,6 +71,26 @@ targets:
     budgets:
       enabled: false
       names: []
+    commitments:
+      enabled: false
+    anomalies:
+      enabled: false
+    tags:
+      enabled: false
+      keys: []
+      # - key: Environment
+      #   max_values: 50
+    cur:
+      enabled: false
+      database: ""
+      table: ""
+      workgroup: ""
+      output_location: ""
+      query_timeout: 10m
+      poll_interval: 2s
+      tag_columns: []
+      # - key: Environment
+      #   column: resource_tags_user_environment
 
 collection:
   refresh_interval: 6h
@@ -82,7 +103,7 @@ collection:
     max: 30m
     multiplier: 2
   cost_explorer:
-    cost_metric: UnblendedCost
+    cost_bases: [unblended]
     max_pages: 50
     prediction_interval: 80
     collectors:
@@ -103,6 +124,23 @@ collection:
     refresh_interval: 6h
     max_pages: 20
     series_limit: 100
+  commitments:
+    refresh_interval: 24h
+    max_pages: 20
+    series_limit: 20
+  anomalies:
+    refresh_interval: 6h
+    max_pages: 20
+    series_limit: 10
+  tags:
+    refresh_interval: 6h
+    max_pages: 50
+    series_limit: 500
+  cur:
+    refresh_interval: 24h
+    max_pages: 50
+    max_rows: 5000
+    series_limit: 2000
 
 cache:
   freshness_ttl: 12h

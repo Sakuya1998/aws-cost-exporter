@@ -12,6 +12,7 @@ import (
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/tagcost"
 	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
 )
 
@@ -22,6 +23,24 @@ var ErrNilUsageAPI = errors.New("cost explorer usage API must not be nil")
 type UsageAdapter struct {
 	paginator  *UsagePaginator
 	costMetric string
+}
+
+// ReadTagCosts retrieves one allowlisted Cost Explorer tag grouping.
+func (adapter *UsageAdapter) ReadTagCosts(ctx context.Context, query ports.CostQuery, tagKey string) ([]tagcost.Cost, error) {
+	costMetric, err := metricForBasis(query.Basis, adapter.costMetric)
+	if err != nil {
+		return nil, err
+	}
+	input := &awscostexplorer.GetCostAndUsageInput{
+		TimePeriod:  &cetypes.DateInterval{Start: aws.String(query.Period.Start().Format(time.DateOnly)), End: aws.String(query.Period.End().Format(time.DateOnly))},
+		Granularity: cetypes.GranularityDaily, Metrics: []string{costMetric}, Filter: usageFilter(query),
+		GroupBy: []cetypes.GroupDefinition{{Key: aws.String(tagKey), Type: cetypes.GroupDefinitionTypeTag}},
+	}
+	results, err := adapter.paginator.Read(ctx, input)
+	if err != nil {
+		return nil, ClassifyError(err)
+	}
+	return mapTagUsage(results, query, costMetric, tagKey)
 }
 
 // NewUsageAdapter validates and constructs a usage adapter.
@@ -46,13 +65,17 @@ func NewUsageAdapterForTarget(target identity.TargetID, api API, maxPages int, c
 
 // ReadCosts serializes a domain query, reads every page, and maps the result.
 func (adapter *UsageAdapter) ReadCosts(ctx context.Context, query ports.CostQuery) ([]cost.Cost, error) {
+	costMetric, err := metricForBasis(query.Basis, adapter.costMetric)
+	if err != nil {
+		return nil, err
+	}
 	input := &awscostexplorer.GetCostAndUsageInput{
 		TimePeriod: &cetypes.DateInterval{
 			Start: aws.String(query.Period.Start().Format(time.DateOnly)),
 			End:   aws.String(query.Period.End().Format(time.DateOnly)),
 		},
 		Granularity: cetypes.GranularityDaily,
-		Metrics:     []string{adapter.costMetric},
+		Metrics:     []string{costMetric},
 		Filter:      usageFilter(query),
 	}
 	if query.GroupBy != cost.DimensionTotal {
@@ -68,7 +91,20 @@ func (adapter *UsageAdapter) ReadCosts(ctx context.Context, query ports.CostQuer
 	if err != nil {
 		return nil, ClassifyError(err)
 	}
-	return MapUsage(results, query, adapter.costMetric)
+	return MapUsage(results, query, costMetric)
+}
+
+func metricForBasis(basis cost.Basis, fallback string) (string, error) {
+	switch cost.NormalizeBasis(basis) {
+	case cost.BasisUnblended:
+		return fallback, nil
+	case cost.BasisAmortized:
+		return "AmortizedCost", nil
+	case cost.BasisNet:
+		return "NetUnblendedCost", nil
+	default:
+		return "", fmt.Errorf("%w: unsupported cost basis", ErrInvalidResponse)
+	}
 }
 
 func usageDimension(kind cost.DimensionKind) (cetypes.Dimension, error) {

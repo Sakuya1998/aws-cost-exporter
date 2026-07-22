@@ -8,11 +8,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/anomaly"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/budget"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/commitment"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/cost"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/organization"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
+	"github.com/sakuya1998/aws-cost-exporter/internal/domain/tagcost"
 )
 
 func TestCostCollectorGoldenIncludesTargetAndNewDomains(t *testing.T) {
@@ -34,13 +37,13 @@ aws_budget_limit_amount{budget_name="Monthly",budget_type="COST",currency="USD",
 aws_cost_account_info{account_name="production",account_status="ACTIVE",linked_account_id="123456789012",target="payer-prod"} 1
 # HELP aws_cost_daily_amount Current UTC billing day accumulated cost.
 # TYPE aws_cost_daily_amount gauge
-aws_cost_daily_amount{currency="USD",target="payer-prod"} 1
+aws_cost_daily_amount{cost_basis="unblended",currency="USD",provider="cost_explorer",target="payer-prod"} 1
 # HELP aws_cost_month_forecast_mean_amount Forecast mean for the remaining current UTC month, including today.
 # TYPE aws_cost_month_forecast_mean_amount gauge
-aws_cost_month_forecast_mean_amount{currency="USD",target="payer-prod"} 100
+aws_cost_month_forecast_mean_amount{cost_basis="unblended",currency="USD",provider="cost_explorer",target="payer-prod"} 100
 # HELP aws_cost_service_daily_amount Current UTC billing day cost by AWS service.
 # TYPE aws_cost_service_daily_amount gauge
-aws_cost_service_daily_amount{aws_service="Amazon EC2",currency="USD",target="payer-prod"} 3
+aws_cost_service_daily_amount{aws_service="Amazon EC2",cost_basis="unblended",currency="USD",provider="cost_explorer",target="payer-prod"} 3
 `
 	if err := testutil.GatherAndCompare(registry, strings.NewReader(expected), "aws_budget_actual_amount", "aws_budget_limit_amount", "aws_cost_account_info", "aws_cost_daily_amount", "aws_cost_month_forecast_mean_amount", "aws_cost_service_daily_amount"); err != nil {
 		t.Fatal(err)
@@ -72,6 +75,38 @@ func TestBudgetMissingForecastOmitsSeries(t *testing.T) {
 	for _, family := range families {
 		if family.GetName() == "aws_budget_forecasted_amount" {
 			t.Fatal("missing forecast emitted a zero series")
+		}
+	}
+}
+
+func TestV03MetricsKeepProviderBasisAndBoundedSummaryLabels(t *testing.T) {
+	target := identity.TargetID("payer-prod")
+	money, _ := cost.NewMoney(12, "USD")
+	value := snapshot.NewWithData(nil, nil, nil, nil,
+		[]commitment.Summary{{Target: target, Type: commitment.TypeSavingsPlan, TimeUnit: "MONTHLY", UtilizationRatio: .8, HasUtilization: true, NetSavings: money, HasNetSavings: true}},
+		[]anomaly.Summary{{Target: target, Active: true, Count: 2, Impact: money, HasImpact: true}},
+		[]tagcost.Cost{{Target: target, Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, TagKey: "Environment", TagValue: "prod", Amount: money}},
+	)
+	collector, _ := NewCostCollector(staticStore{snapshot: value})
+	registry := prometheus.NewPedanticRegistry()
+	registry.MustRegister(collector)
+	text, err := testutil.GatherAndCount(registry, "aws_commitment_utilization_ratio", "aws_commitment_net_savings_amount", "aws_cost_anomaly_count", "aws_cost_tag_daily_amount")
+	if err != nil || text != 4 {
+		t.Fatalf("v0.3 metric families=%d err=%v", text, err)
+	}
+	families, _ := registry.Gather()
+	serialized := ""
+	for _, family := range families {
+		serialized += family.String()
+	}
+	for _, fragment := range []string{`cur_athena`, `net`, `savings_plan`} {
+		if !strings.Contains(serialized, fragment) {
+			t.Fatalf("metrics lack %s", fragment)
+		}
+	}
+	for _, forbidden := range []string{"anomaly_id", "root_cause", "plan_id"} {
+		if strings.Contains(serialized, forbidden) {
+			t.Fatalf("metrics expose high-cardinality label %s", forbidden)
 		}
 	}
 }

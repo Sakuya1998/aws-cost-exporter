@@ -130,7 +130,7 @@ func (exporter *Exporter) ObserveSkipped(id identity.CollectorID, reason string)
 
 func (exporter *Exporter) ObserveOverflow(target identity.TargetID, dimension string, count int) {
 	if count > 0 {
-		exporter.overflow.WithLabelValues(string(target), bounded(dimension, "service", "region", "account")).Add(float64(count))
+		exporter.overflow.WithLabelValues(string(target), bounded(dimension, "service", "region", "account", "tag")).Add(float64(count))
 	}
 }
 
@@ -150,7 +150,7 @@ func (exporter *Exporter) isKnown(id identity.CollectorID) bool {
 	return exists
 }
 func boundedOperation(value string) string {
-	return bounded(value, "AssumeRole", "GetCallerIdentity", "GetCostAndUsage", "GetCostForecast", "ListAccounts", "DescribeOrganization", "DescribeBudgets")
+	return bounded(value, "AssumeRole", "GetCallerIdentity", "GetCostAndUsage", "GetCostForecast", "ListAccounts", "DescribeOrganization", "DescribeBudgets", "GetSavingsPlansUtilization", "GetSavingsPlansCoverage", "GetReservationUtilization", "GetReservationCoverage", "GetAnomalies", "StartQueryExecution", "GetQueryExecution", "GetQueryResults")
 }
 func bounded(value string, allowed ...string) string {
 	return boundedDefault(value, "unknown", allowed...)
