@@ -11,13 +11,37 @@
       "Sid": "ReadCURCatalog",
       "Effect": "Allow",
       "Action": ["glue:GetDatabase", "glue:GetTable", "glue:GetPartitions"],
-      "Resource": "*"
+      "Resource": [
+        "arn:aws:glue:us-east-1:444455556666:catalog",
+        "arn:aws:glue:us-east-1:444455556666:database/billing",
+        "arn:aws:glue:us-east-1:444455556666:table/billing/cur2"
+      ]
     },
     {
-      "Sid": "AccessCURBuckets",
+      "Sid": "LocateCURBuckets",
       "Effect": "Allow",
-      "Action": ["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"],
+      "Action": "s3:GetBucketLocation",
       "Resource": ["arn:aws:s3:::example-cur-bucket", "arn:aws:s3:::example-athena-results"]
+    },
+    {
+      "Sid": "ListCURInput",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::example-cur-bucket",
+      "Condition": {"StringLike": {"s3:prefix": ["cur-prefix", "cur-prefix/*"]}}
+    },
+    {
+      "Sid": "ListAthenaResults",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::example-athena-results",
+      "Condition": {"StringLike": {"s3:prefix": ["aws-cost-exporter", "aws-cost-exporter/*"]}}
+    },
+    {
+      "Sid": "ListAthenaResultUploads",
+      "Effect": "Allow",
+      "Action": "s3:ListBucketMultipartUploads",
+      "Resource": "arn:aws:s3:::example-athena-results"
     },
     {
       "Sid": "ReadCURObjects",

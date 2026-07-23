@@ -47,6 +47,9 @@ func (collector *Collector) Collect(ctx context.Context, reference time.Time) (s
 	if err != nil {
 		return snapshot.PartialSnapshot{}, err
 	}
+	if currencyCount(costs, nil) > collector.maxCurrencies {
+		return snapshot.PartialSnapshot{}, fmt.Errorf("CUR currency limit exceeded")
+	}
 	var tags []tagcost.Cost
 	if collector.tags {
 		tags, err = collector.reader.QueryTagCosts(ctx, reference, collector.bases)

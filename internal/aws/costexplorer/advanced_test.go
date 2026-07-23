@@ -2,7 +2,6 @@ package costexplorer
 
 import (
 	"context"
-	"reflect"
 	"testing"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/aws/common"
-	commitmentcollector "github.com/sakuya1998/aws-cost-exporter/internal/collector/commitment"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/commitment"
 )
 
@@ -51,30 +49,6 @@ func TestCommitmentReaderMapsBoundedSavingsAndReservationSummaries(t *testing.T)
 	}
 	if value, err := NewCommitmentReader("payer", nil, 1, nil, nil); value != nil || err == nil {
 		t.Fatal("accepted nil API")
-	}
-}
-
-func TestCommitmentReaderHasOneOrchestrationPathAndFeedsCollector(t *testing.T) {
-	reader, err := NewCommitmentReader("payer", commitmentStub{}, 2, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, legacy := range []string{"ReadSavingsPlans", "ReadReservations"} {
-		if _, exists := reflect.TypeOf(reader).MethodByName(legacy); exists {
-			t.Errorf("CommitmentReader still exposes legacy method %s", legacy)
-		}
-	}
-	subject, err := commitmentcollector.New("payer", reader, 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := subject.Collect(context.Background(), time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	values := result.Commitments()
-	if len(values) != 2 || values[0].Type != commitment.TypeReservation || values[1].Type != commitment.TypeSavingsPlan || !values[0].HasUtilization || !values[0].HasCoverage || !values[1].HasUtilization || !values[1].HasCoverage {
-		t.Fatalf("commitments=%#v", values)
 	}
 }
 

@@ -210,3 +210,36 @@ func TestValidateCURRegionReportsFormatValidation(t *testing.T) {
 		t.Fatalf("Validate()=%v", err)
 	}
 }
+
+func TestValidateCURLifecycleAndOutputLocationBounds(t *testing.T) {
+	base := validConfig()
+	base.Targets[0].CUR = config.TargetCURConfig{
+		Enabled: true, Region: "us-east-1", Database: "billing", Table: "cur2", Workgroup: "exporter",
+		OutputLocation: "s3://valid-results/exporter/", QueryTimeout: 10 * time.Minute, PollInterval: time.Second,
+	}
+	for _, test := range []struct {
+		name, path string
+		mutate     func(*config.Config)
+	}{
+		{"query timeout below request timeout", "cur.query_timeout", func(v *config.Config) { v.Targets[0].CUR.QueryTimeout = v.AWS.RequestTimeout }},
+		{"query timeout above maximum", "cur.query_timeout", func(v *config.Config) { v.Targets[0].CUR.QueryTimeout = 2 * time.Hour }},
+		{"query timeout reaches refresh interval", "collection.cur.refresh_interval", func(v *config.Config) {
+			v.Collection.CUR.RefreshInterval = time.Hour
+			v.Targets[0].CUR.QueryTimeout = time.Hour
+		}},
+		{"poll interval below minimum", "cur.poll_interval", func(v *config.Config) { v.Targets[0].CUR.PollInterval = 50 * time.Millisecond }},
+		{"poll interval above maximum", "cur.poll_interval", func(v *config.Config) { v.Targets[0].CUR.PollInterval = 2 * time.Minute }},
+		{"uppercase S3 bucket", "cur.output_location", func(v *config.Config) { v.Targets[0].CUR.OutputLocation = "s3://Invalid-Bucket/exporter/" }},
+		{"adjacent-dot S3 bucket", "cur.output_location", func(v *config.Config) { v.Targets[0].CUR.OutputLocation = "s3://invalid..bucket/exporter/" }},
+		{"IP-address S3 bucket", "cur.output_location", func(v *config.Config) { v.Targets[0].CUR.OutputLocation = "s3://192.168.1.1/exporter/" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := base
+			value.Targets = append([]config.TargetConfig(nil), base.Targets...)
+			test.mutate(&value)
+			if err := config.Validate(value); err == nil || !strings.Contains(err.Error(), test.path) {
+				t.Fatalf("Validate()=%v want field %q", err, test.path)
+			}
+		})
+	}
+}

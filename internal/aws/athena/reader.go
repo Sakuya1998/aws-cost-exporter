@@ -266,32 +266,41 @@ func equalColumns(left, right []string) bool {
 func buildQuery(value config.TargetCURConfig, reference time.Time, bases []cost.Basis, tags bool) string {
 	day := cost.DayContaining(reference)
 	month := cost.MonthContaining(reference)
+	table := quoteIdentifier(value.Database) + "." + quoteIdentifier(value.Table)
 	windows := []struct{ name, start, end string }{
 		{string(cost.WindowDaily), day.Start().Format(time.DateOnly), day.End().Format(time.DateOnly)},
 		{string(cost.WindowMonthToDate), month.Start().Format(time.DateOnly), day.End().Format(time.DateOnly)},
 	}
-	table := quoteIdentifier(value.Database) + "." + quoteIdentifier(value.Table)
-	parts := make([]string, 0)
+	amountRows := make([]string, 0, len(bases)*len(windows))
 	for _, basis := range bases {
 		expression, ok := basisExpression(basis)
 		if !ok {
 			continue
 		}
 		for _, window := range windows {
-			if tags {
-				for _, tag := range value.TagColumns {
-					parts = append(parts, fmt.Sprintf("SELECT '%s' AS window, line_item_currency_code AS currency, '%s' AS cost_basis, SUM(%s) AS amount, '%s' AS tag_key, COALESCE(NULLIF(%s, ''), '__untagged__') AS tag_value FROM %s WHERE line_item_usage_start_date >= DATE '%s' AND line_item_usage_start_date < DATE '%s' GROUP BY 2,6", window.name, basis, expression, strings.ReplaceAll(tag.Key, "'", "''"), quoteIdentifier(tag.Column), table, window.start, window.end))
-				}
-				continue
-			}
-			parts = append(parts, fmt.Sprintf("SELECT '%s' AS window, line_item_currency_code AS currency, '%s' AS cost_basis, SUM(%s) AS amount FROM %s WHERE line_item_usage_start_date >= DATE '%s' AND line_item_usage_start_date < DATE '%s' GROUP BY 2", window.name, basis, expression, table, window.start, window.end))
+			amount := fmt.Sprintf("CASE WHEN line_item_usage_start_date >= DATE '%s' AND line_item_usage_start_date < DATE '%s' THEN %s END", window.start, window.end, expression)
+			amountRows = append(amountRows, fmt.Sprintf("ROW('%s', '%s', %s)", window.name, basis, amount))
 		}
 	}
-	order := " ORDER BY window, currency, cost_basis"
-	if tags {
-		order += ", tag_key, tag_value"
+	if len(amountRows) == 0 {
+		return ""
 	}
-	return strings.Join(parts, " UNION ALL ") + order
+	query := "SELECT expanded.window, line_item_currency_code AS currency, expanded.cost_basis, SUM(expanded.amount) AS amount"
+	if tags {
+		tagRows := make([]string, 0, len(value.TagColumns))
+		for _, tag := range value.TagColumns {
+			tagRows = append(tagRows, fmt.Sprintf("ROW('%s', COALESCE(NULLIF(%s, ''), '__untagged__'))", strings.ReplaceAll(tag.Key, "'", "''"), quoteIdentifier(tag.Column)))
+		}
+		if len(tagRows) == 0 {
+			return ""
+		}
+		query += ", tag_values.tag_key, tag_values.tag_value"
+		query += fmt.Sprintf(" FROM %s CROSS JOIN UNNEST(ARRAY[%s]) AS expanded(window, cost_basis, amount) CROSS JOIN UNNEST(ARRAY[%s]) AS tag_values(tag_key, tag_value)", table, strings.Join(amountRows, ", "), strings.Join(tagRows, ", "))
+		query += fmt.Sprintf(" WHERE line_item_usage_start_date >= DATE '%s' AND line_item_usage_start_date < DATE '%s' AND expanded.amount IS NOT NULL GROUP BY expanded.window, line_item_currency_code, expanded.cost_basis, tag_values.tag_key, tag_values.tag_value ORDER BY expanded.window, currency, expanded.cost_basis, tag_values.tag_key, tag_values.tag_value", month.Start().Format(time.DateOnly), day.End().Format(time.DateOnly))
+		return query
+	}
+	query += fmt.Sprintf(" FROM %s CROSS JOIN UNNEST(ARRAY[%s]) AS expanded(window, cost_basis, amount)", table, strings.Join(amountRows, ", "))
+	return query + fmt.Sprintf(" WHERE line_item_usage_start_date >= DATE '%s' AND line_item_usage_start_date < DATE '%s' AND expanded.amount IS NOT NULL GROUP BY expanded.window, line_item_currency_code, expanded.cost_basis ORDER BY expanded.window, currency, expanded.cost_basis", month.Start().Format(time.DateOnly), day.End().Format(time.DateOnly))
 }
 
 func basisExpression(value cost.Basis) (string, bool) {

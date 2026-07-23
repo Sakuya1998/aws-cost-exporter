@@ -133,7 +133,7 @@ Budgets requires a non-empty exact-name allowlist and exports only `COST` budget
 
 `collection.cost_explorer.cost_bases` is a non-empty subset of `unblended`, `amortized`, and `net`. Every cost series includes `provider` and `cost_basis`; do not sum across either label. Commitment and anomaly collectors expose account-level summaries only and never use plan IDs, anomaly IDs, service names, root causes, or raw AWS messages as labels.
 
-CUR requires a pre-created CUR 2.0 table and Athena workgroup. The Athena workgroup ARN region must match `targets[].cur.region`, and that region must also contain the Glue catalog; this is independent from the Cost Explorer `aws.region`, which remains `us-east-1`. The exporter generates fixed read-only queries and polls Athena asynchronously; arbitrary SQL is not accepted. Configure `cur.tag_columns` to map each allowlisted public tag key to one validated CUR column. `collection.cur.max_currencies` bounds the distinct currency union returned by total and Tag queries; exceeding it rejects the complete refresh and retains the previous snapshot. Failed, canceled, timed-out, over-limit, or malformed queries retain the previous snapshot.
+CUR requires a pre-created CUR 2.0 table and Athena workgroup. The Athena workgroup ARN region must match `targets[].cur.region`, and that region must also contain the Glue catalog; this is independent from the Cost Explorer `aws.region`, which remains `us-east-1`. The exporter generates fixed read-only queries and polls Athena asynchronously; arbitrary SQL is not accepted. Each totals query and Tag query references the CUR table once and expands its bounded window, basis, and tag dimensions inside Athena. Configure `cur.tag_columns` to map each allowlisted public tag key to one validated CUR column. `collection.cur.max_currencies` bounds the distinct currency union returned by total and Tag queries; exceeding it rejects the complete refresh and retains the previous snapshot. Failed, canceled, timed-out, over-limit, or malformed queries retain the previous snapshot.
 
 CUR amortized cost uses AWS CUR 2.0 line-item semantics: covered usage uses Savings Plans or RI effective cost, Savings Plans recurring fees contribute unused commitment, RI fee rows contribute unused amortized upfront and recurring fees, and Savings Plans negation/upfront plus reservation upfront fee rows are excluded to prevent double counting. Other rows use unblended cost. Net cost uses `line_item_net_unblended_cost` with unblended fallback for rows where AWS leaves the net column empty. These bases remain separate series and must not be added together.
 
@@ -144,6 +144,8 @@ Important bounds:
 - The CUR Tag worst case multiplies that budget by `collection.cur.max_currencies`; it must still fit within `collection.tags.series_limit`.
 - For a CUR target, `max_currencies * (2 total-cost windows * cost bases + per-currency Tag budget)` must fit within `collection.cur.series_limit`.
 - `cur.tag_columns` keys and physical CUR column names must both be unique.
+- `targets[].cur.query_timeout` must exceed `aws.request_timeout`, must not exceed 1 hour, and must remain below `collection.cur.refresh_interval`; `poll_interval` is limited to 100ms..1m.
+- `targets[].cur.output_location` must use a valid lower-case S3 bucket name and a non-empty prefix.
 
 - `targets` and credential sources: 1–20.
 - `aws.retry.max_attempts`: 1–10.
@@ -187,7 +189,7 @@ ce:GetCostAndUsage
 ce:GetCostForecast
 ```
 
-The exporter calls STS `GetCallerIdentity` for every final target identity; AWS does not normally require an explicit allow for that operation. Organizations targets additionally require `organizations:ListAccounts` and `organizations:DescribeOrganization`. Budgets targets require `budgets:ViewBudget`. Commitment and anomaly targets require the corresponding Cost Explorer read APIs. CUR targets require `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, `athena:StopQueryExecution`, Glue catalog reads, CUR table reads, and access to the configured Athena result S3 prefix. A source principal requires `sts:AssumeRole` only for each exact configured role ARN.
+The exporter calls STS `GetCallerIdentity` for every final target identity; AWS does not normally require an explicit allow for that operation. Organizations targets additionally require `organizations:ListAccounts` and `organizations:DescribeOrganization`. Budgets targets require `budgets:ViewBudget`. Commitment and anomaly targets require the corresponding Cost Explorer read APIs. CUR targets require `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, `athena:StopQueryExecution`, scoped Glue catalog reads, CUR prefix reads, and access to the configured Athena result S3 prefix. Replace every account, region, database, table, bucket, and prefix placeholder in `examples/iam/cur-athena-readonly.json`. A source principal requires `sts:AssumeRole` only for each exact configured role ARN.
 
 See [examples/iam](examples/iam). Static access key values are never configuration fields; only environment-variable names may be configured.
 
@@ -203,7 +205,7 @@ approximate Cost Explorer requests per refresh = T * (((8 + 2*K) * B * P) + fore
 
 SDK retries can produce additional billable HTTP attempts. `aws_cost_exporter_aws_api_requests_total` counts logical SDK operations, `aws_cost_exporter_pagination_pages_total` counts successfully read pages, and `aws_cost_exporter_aws_api_retries_total` counts authorized retry attempts. They are related but not interchangeable with the AWS invoice.
 
-Athena is billed by data scanned. The exporter submits fixed aggregate queries only on the configured CUR refresh interval, never during scrape. `query_timeout` covers submission, polling, and result pagination; any abnormal exit before Athena reports a terminal state triggers a best-effort `StopQueryExecution`. Partition the CUR table by billing period, use a dedicated workgroup with scan limits, and monitor Athena costs before reducing the default 24-hour interval.
+Athena is billed by data scanned. The exporter submits fixed aggregate queries only on the configured CUR refresh interval, never during scrape. Totals and Tag collection are separate queries, but each query contains only one CUR table reference. `query_timeout` covers submission, polling, and result pagination; any abnormal exit before Athena reports a terminal state triggers a best-effort `StopQueryExecution`. Partition the CUR table by billing period, use a dedicated workgroup with scan limits, and monitor Athena costs before reducing the default 24-hour interval.
 
 Both initial attempts and SDK retries acquire the global limiter and then the target limiter. A scheduled collector run is additionally bounded by `collection.failure_backoff.max_attempts`; after that budget is exhausted it waits for the next normal interval. Collectors for one target run serially so a slow account cannot occupy every global collection slot. Tighten target filters, increase refresh intervals, or reduce `max_pages` before raising rate limits. `series_limit` bounds Prometheus cardinality but does not reduce Cost Explorer pages.
 
@@ -224,8 +226,7 @@ Debug endpoints are disabled by default and never expose credentials or configur
 
 ## Metrics
 
-Every business and target-scoped operational metric has a mandatory `target` label. Cost metrics also use fixed `provider` and `cost_basis` labels. Never sum different providers, accounting bases, or currencies.
-Never sum different `currency` values; likewise, never sum different `provider` or `cost_basis` values.
+Every business and target-scoped operational metric has a mandatory `target` label. Cost metrics also use fixed `provider` and `cost_basis` labels. Never sum different `currency`, `provider`, or `cost_basis` values.
 
 Cost metrics:
 

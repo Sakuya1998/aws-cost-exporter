@@ -15,12 +15,16 @@ type stubReader struct {
 	costs           []cost.Cost
 	tags            []tagcost.Cost
 	costErr, tagErr error
+	tagCalls        *int
 }
 
 func (reader stubReader) QueryCosts(context.Context, time.Time, []cost.Basis) ([]cost.Cost, error) {
 	return reader.costs, reader.costErr
 }
 func (reader stubReader) QueryTagCosts(context.Context, time.Time, []cost.Basis) ([]tagcost.Cost, error) {
+	if reader.tagCalls != nil {
+		*reader.tagCalls++
+	}
 	return reader.tags, reader.tagErr
 }
 
@@ -74,5 +78,29 @@ func TestCollectorRejectsCurrenciesBeyondConfiguredLimit(t *testing.T) {
 	}
 	if _, err := allowed.Collect(context.Background(), time.Now()); err != nil {
 		t.Fatalf("Collect() with two currencies: %v", err)
+	}
+}
+
+func TestCollectorSkipsTagQueryWhenCostCurrenciesExceedLimit(t *testing.T) {
+	usd, _ := cost.NewMoney(1, "USD")
+	eur, _ := cost.NewMoney(1, "EUR")
+	dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
+	tagCalls := 0
+	reader := stubReader{
+		costs: []cost.Cost{
+			{Target: "payer", Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, Dimension: dimension, Amount: usd},
+			{Target: "payer", Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, Dimension: dimension, Amount: eur},
+		},
+		tagCalls: &tagCalls,
+	}
+	subject, err := New("payer", reader, []cost.Basis{cost.BasisNet}, true, 10, 5, 1, []config.TagKeyConfig{{Key: "Environment", MaxValues: 2}}, "__other__")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subject.Collect(context.Background(), time.Now()); err == nil || err.Error() != "CUR currency limit exceeded" {
+		t.Fatalf("Collect() error=%v", err)
+	}
+	if tagCalls != 0 {
+		t.Fatalf("QueryTagCosts calls=%d want 0", tagCalls)
 	}
 }

@@ -87,8 +87,8 @@ targets:
       table: ""
       workgroup: ""
       output_location: ""
-      query_timeout: 10m
-      poll_interval: 2s
+      query_timeout: 10m # > aws.request_timeout, <= 1h, and < collection.cur.refresh_interval
+      poll_interval: 2s # 100ms..1m
       tag_columns: []
       # - key: Environment
       #   column: resource_tags_user_environment

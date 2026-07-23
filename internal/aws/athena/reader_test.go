@@ -54,7 +54,7 @@ func TestReaderRejectsFailedAndOverLimitQueries(t *testing.T) {
 }
 
 func TestReaderMapsTagRowsAndStopsOnCancellation(t *testing.T) {
-	value := config.TargetCURConfig{Database: "billing", Table: "cur2", Workgroup: "exporter", OutputLocation: "s3://results/", QueryTimeout: time.Second, PollInterval: time.Millisecond}
+	value := config.TargetCURConfig{Database: "billing", Table: "cur2", Workgroup: "exporter", OutputLocation: "s3://results/", QueryTimeout: time.Second, PollInterval: time.Millisecond, TagColumns: []config.CURTagColumn{{Key: "Environment", Column: "resource_tags_user_environment"}}}
 	api := &stubAPI{state: athenatypes.QueryExecutionStateSucceeded, rows: [][]string{{"window", "currency", "cost_basis", "amount", "tag_key", "tag_value"}, {"daily", "USD", "amortized", "3", "Environment", "prod"}}}
 	reader, _ := NewReader("payer", api, value, 2, 10, nil, nil)
 	tags, err := reader.QueryTagCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisAmortized})
@@ -234,6 +234,39 @@ func TestAmortizedQueryCoversCommitmentFeeRows(t *testing.T) {
 		if !strings.Contains(expression, required) {
 			t.Fatalf("amortized expression is missing %q: %s", required, expression)
 		}
+	}
+}
+
+func TestBuildQueryScansCURTableOnce(t *testing.T) {
+	value := config.TargetCURConfig{
+		Database: "billing", Table: "cur2",
+		TagColumns: []config.CURTagColumn{
+			{Key: "Environment", Column: "resource_tags_user_environment"},
+			{Key: "Team", Column: "resource_tags_user_team"},
+		},
+	}
+	query := buildQuery(value, time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC), []cost.Basis{cost.BasisUnblended, cost.BasisAmortized, cost.BasisNet}, true)
+	if count := strings.Count(query, `FROM "billing"."cur2"`); count != 1 {
+		t.Fatalf("CUR table references=%d want 1: %s", count, query)
+	}
+	if strings.Contains(query, "UNION ALL") {
+		t.Fatalf("query still repeats table scans with UNION ALL: %s", query)
+	}
+	for _, fragment := range []string{"CROSS JOIN UNNEST", "Environment", "Team", "daily", "month_to_date", "unblended", "amortized", "net"} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("single-scan query lacks %q: %s", fragment, query)
+		}
+	}
+}
+
+func TestBuildQueryRejectsEmptyExpansionDimensions(t *testing.T) {
+	value := config.TargetCURConfig{Database: "billing", Table: "cur2"}
+	reference := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	if query := buildQuery(value, reference, nil, false); query != "" {
+		t.Fatalf("empty basis query=%q", query)
+	}
+	if query := buildQuery(value, reference, []cost.Basis{cost.BasisUnblended}, true); query != "" {
+		t.Fatalf("empty tag query=%q", query)
 	}
 }
 

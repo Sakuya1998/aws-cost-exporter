@@ -3,24 +3,30 @@ package config
 import (
 	"fmt"
 	"math"
+	"net"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
-	maxTargets        = 20
-	maxRetryAttempts  = 10
-	maxRateLimitBurst = 5
-	maxRequestsPerSec = 10
-	maxPages          = 200
-	maxCostSeries     = 2000
-	maxOrgSeries      = 2000
-	maxBudgetSeries   = 500
-	maxTagKeys        = 20
-	maxTagValues      = 500
-	maxServerInFlight = 1000
-	maxConcurrency    = 100
+	maxTargets         = 20
+	maxRetryAttempts   = 10
+	maxRateLimitBurst  = 5
+	maxRequestsPerSec  = 10
+	maxPages           = 200
+	maxCostSeries      = 2000
+	maxOrgSeries       = 2000
+	maxBudgetSeries    = 500
+	maxTagKeys         = 20
+	maxTagValues       = 500
+	maxServerInFlight  = 1000
+	maxConcurrency     = 100
+	minCURPollInterval = 100 * time.Millisecond
+	maxCURPollInterval = time.Minute
+	maxCURQueryTimeout = time.Hour
 )
 
 var (
@@ -191,7 +197,7 @@ func validateTargets(value Config) error {
 		if err := validateBudgets(path, target, value.Collection.Budgets.SeriesLimit); err != nil {
 			return err
 		}
-		if err := validateCUR(path, target); err != nil {
+		if err := validateCUR(path, target, value.AWS.RequestTimeout, value.Collection.CUR.RefreshInterval); err != nil {
 			return err
 		}
 		if err := validateTags(path, target, value.Collection.Tags.SeriesLimit, len(value.Collection.CostExplorer.CostBases), value.Collection.CUR.MaxCurrencies); err != nil {
@@ -217,10 +223,10 @@ func validateTargets(value Config) error {
 
 var sqlIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 var workgroupPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
-var s3LocationPattern = regexp.MustCompile(`^s3://[A-Za-z0-9][A-Za-z0-9.-]{1,61}[A-Za-z0-9]/.+$`)
+var s3BucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 var awsRegionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z0-9]+)+-[0-9]+$`)
 
-func validateCUR(path string, target TargetConfig) error {
+func validateCUR(path string, target TargetConfig, requestTimeout, refreshInterval time.Duration) error {
 	if !target.CUR.Enabled {
 		return nil
 	}
@@ -244,14 +250,26 @@ func validateCUR(path string, target TargetConfig) error {
 	if !workgroupPattern.MatchString(target.CUR.Workgroup) {
 		return fmt.Errorf("%s.cur.workgroup: has invalid format", path)
 	}
-	if !s3LocationPattern.MatchString(target.CUR.OutputLocation) {
-		return fmt.Errorf("%s.cur.output_location: must be an s3:// prefix", path)
+	if !validS3Prefix(target.CUR.OutputLocation) {
+		return fmt.Errorf("%s.cur.output_location: must be a valid s3:// bucket prefix", path)
 	}
 	if target.CUR.QueryTimeout <= 0 {
 		return fmt.Errorf("%s.cur.query_timeout: must be positive", path)
 	}
-	if target.CUR.PollInterval <= 0 {
-		return fmt.Errorf("%s.cur.poll_interval: must be positive", path)
+	if target.CUR.QueryTimeout <= requestTimeout {
+		return fmt.Errorf("%s.cur.query_timeout: must exceed aws.request_timeout", path)
+	}
+	if target.CUR.QueryTimeout > maxCURQueryTimeout {
+		return fmt.Errorf("%s.cur.query_timeout: must not exceed %s", path, maxCURQueryTimeout)
+	}
+	if target.CUR.QueryTimeout >= refreshInterval {
+		return fmt.Errorf("%s.cur.query_timeout: must be less than collection.cur.refresh_interval", path)
+	}
+	if target.CUR.PollInterval < minCURPollInterval {
+		return fmt.Errorf("%s.cur.poll_interval: must be at least %s", path, minCURPollInterval)
+	}
+	if target.CUR.PollInterval > maxCURPollInterval {
+		return fmt.Errorf("%s.cur.poll_interval: must not exceed %s", path, maxCURPollInterval)
 	}
 	if target.CUR.PollInterval >= target.CUR.QueryTimeout {
 		return fmt.Errorf("%s.cur.poll_interval: must be less than query_timeout", path)
@@ -278,6 +296,18 @@ func validateCUR(path string, target TargetConfig) error {
 		seenColumns[column.Column] = struct{}{}
 	}
 	return nil
+}
+
+func validS3Prefix(value string) bool {
+	location, err := url.Parse(value)
+	if err != nil || location.Scheme != "s3" || location.User != nil || location.RawQuery != "" || location.Fragment != "" {
+		return false
+	}
+	bucket := location.Host
+	if !s3BucketPattern.MatchString(bucket) || net.ParseIP(bucket) != nil || strings.Contains(bucket, "..") || strings.Contains(bucket, ".-") || strings.Contains(bucket, "-.") {
+		return false
+	}
+	return strings.Trim(location.Path, "/") != ""
 }
 
 func validateTags(path string, target TargetConfig, seriesLimit, basisCount, maxCurrencies int) error {

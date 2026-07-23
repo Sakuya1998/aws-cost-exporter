@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -15,10 +16,11 @@ type policy struct {
 }
 
 type statement struct {
-	Sid      string      `json:"Sid"`
-	Effect   string      `json:"Effect"`
-	Action   interface{} `json:"Action"`
-	Resource interface{} `json:"Resource"`
+	Sid       string                            `json:"Sid"`
+	Effect    string                            `json:"Effect"`
+	Action    interface{}                       `json:"Action"`
+	Resource  interface{}                       `json:"Resource"`
+	Condition map[string]map[string]interface{} `json:"Condition"`
 }
 
 func TestREADMEContainsDeploymentAndRuntimeContracts(t *testing.T) {
@@ -139,38 +141,89 @@ func assertCURPolicy(t *testing.T, path string) {
 	}
 	statements := make(map[string]statement, len(document.Statement))
 	for _, item := range document.Statement {
+		if _, duplicate := statements[item.Sid]; duplicate {
+			t.Fatalf("CUR policy contains duplicate Sid %s", item.Sid)
+		}
 		statements[item.Sid] = item
 	}
 
-	assertStatement := func(sid string, actions, resources []string) {
+	assertStatement := func(sid string, actions, resources []string) statement {
 		t.Helper()
 		item, ok := statements[sid]
 		if !ok {
-			t.Errorf("CUR policy lacks %s statement", sid)
-			return
+			t.Fatalf("CUR policy lacks %s statement", sid)
 		}
-		encoded, _ := json.Marshal(item)
-		text := string(encoded)
-		for _, value := range append(actions, resources...) {
-			if !strings.Contains(text, value) {
-				t.Errorf("CUR policy %s lacks %s", sid, value)
-			}
-		}
+		assertExactStrings(t, sid+" actions", item.Action, actions)
+		assertExactStrings(t, sid+" resources", item.Resource, resources)
+		return item
 	}
-	assertStatement("AccessCURBuckets",
-		[]string{"s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"},
+	assertStatement("ReadCURCatalog",
+		[]string{"glue:GetDatabase", "glue:GetTable", "glue:GetPartitions"},
+		[]string{"arn:aws:glue:us-east-1:444455556666:catalog", "arn:aws:glue:us-east-1:444455556666:database/billing", "arn:aws:glue:us-east-1:444455556666:table/billing/cur2"})
+	assertStatement("LocateCURBuckets", []string{"s3:GetBucketLocation"},
 		[]string{"arn:aws:s3:::example-cur-bucket", "arn:aws:s3:::example-athena-results"})
+	inputList := assertStatement("ListCURInput", []string{"s3:ListBucket"}, []string{"arn:aws:s3:::example-cur-bucket"})
+	assertPrefixCondition(t, inputList, []string{"cur-prefix", "cur-prefix/*"})
+	outputList := assertStatement("ListAthenaResults", []string{"s3:ListBucket"}, []string{"arn:aws:s3:::example-athena-results"})
+	assertPrefixCondition(t, outputList, []string{"aws-cost-exporter", "aws-cost-exporter/*"})
+	assertStatement("ListAthenaResultUploads", []string{"s3:ListBucketMultipartUploads"}, []string{"arn:aws:s3:::example-athena-results"})
 	assertStatement("ReadCURObjects", []string{"s3:GetObject"}, []string{"arn:aws:s3:::example-cur-bucket/cur-prefix/*"})
 	assertStatement("AccessAthenaResults",
 		[]string{"s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"},
 		[]string{"arn:aws:s3:::example-athena-results/aws-cost-exporter/*"})
 
-	for _, sid := range []string{"ReadCURObjects", "AccessAthenaResults"} {
-		encoded, _ := json.Marshal(statements[sid])
-		if strings.Contains(string(encoded), "s3:GetBucketLocation") || strings.Contains(string(encoded), "s3:ListBucket") {
-			t.Errorf("CUR policy %s applies bucket actions to object ARNs", sid)
+	for _, item := range document.Statement {
+		for _, resource := range stringValues(t, item.Resource) {
+			if resource == "*" {
+				t.Errorf("CUR policy %s uses wildcard resources", item.Sid)
+			}
 		}
 	}
+}
+
+func assertExactStrings(t *testing.T, name string, value interface{}, expected []string) {
+	t.Helper()
+	actual := stringValues(t, value)
+	slices.Sort(actual)
+	expected = append([]string(nil), expected...)
+	slices.Sort(expected)
+	if !slices.Equal(actual, expected) {
+		t.Errorf("%s=%v want %v", name, actual, expected)
+	}
+}
+
+func stringValues(t *testing.T, value interface{}) []string {
+	t.Helper()
+	switch current := value.(type) {
+	case string:
+		return []string{current}
+	case []interface{}:
+		result := make([]string, len(current))
+		for index, item := range current {
+			text, ok := item.(string)
+			if !ok {
+				t.Fatalf("policy value %v is not a string", item)
+			}
+			result[index] = text
+		}
+		return result
+	default:
+		t.Fatalf("unsupported policy value type %T", value)
+		return nil
+	}
+}
+
+func assertPrefixCondition(t *testing.T, item statement, expected []string) {
+	t.Helper()
+	condition, ok := item.Condition["StringLike"]
+	if !ok {
+		t.Fatalf("CUR policy %s lacks StringLike condition", item.Sid)
+	}
+	value, ok := condition["s3:prefix"]
+	if !ok {
+		t.Fatalf("CUR policy %s lacks s3:prefix condition", item.Sid)
+	}
+	assertExactStrings(t, item.Sid+" prefixes", value, expected)
 }
 
 func TestCURDocumentationRequiresMatchingAthenaRegion(t *testing.T) {
