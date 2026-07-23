@@ -157,7 +157,7 @@ func TestValidateV03CostBasesTagsAndCUR(t *testing.T) {
 	value := validConfig()
 	value.Collection.CostExplorer.CostBases = []string{"unblended", "amortized", "net"}
 	value.Targets[0].Tags = config.TargetTagsConfig{Enabled: true, Keys: []config.TagKeyConfig{{Key: "Environment", MaxValues: 20}}}
-	value.Targets[0].CUR = config.TargetCURConfig{Enabled: true, Database: "billing", Table: "cur2", Workgroup: "exporter", OutputLocation: "s3://results/exporter/", QueryTimeout: time.Minute, PollInterval: time.Second, TagColumns: []config.CURTagColumn{{Key: "Environment", Column: "resource_tags_user_environment"}}}
+	value.Targets[0].CUR = config.TargetCURConfig{Enabled: true, Region: "us-east-1", Database: "billing", Table: "cur2", Workgroup: "exporter", OutputLocation: "s3://results/exporter/", QueryTimeout: time.Minute, PollInterval: time.Second, TagColumns: []config.CURTagColumn{{Key: "Environment", Column: "resource_tags_user_environment"}}}
 	if err := config.Validate(value); err != nil {
 		t.Fatalf("valid v0.3 config: %v", err)
 	}
@@ -167,6 +167,8 @@ func TestValidateV03CostBasesTagsAndCUR(t *testing.T) {
 	}{
 		{"duplicate basis", "cost_bases", func(v *config.Config) { v.Collection.CostExplorer.CostBases = []string{"net", "net"} }},
 		{"invalid basis", "cost_bases", func(v *config.Config) { v.Collection.CostExplorer.CostBases = []string{"blended"} }},
+		{"missing CUR region", "cur.region", func(v *config.Config) { v.Targets[0].CUR.Region = "" }},
+		{"invalid CUR region", "cur.region", func(v *config.Config) { v.Targets[0].CUR.Region = "US East 1" }},
 		{"unsafe CUR column", "tag_columns", func(v *config.Config) { v.Targets[0].CUR.TagColumns[0].Column = "tag; DROP TABLE cur2" }},
 		{"duplicate CUR column", "tag_columns[1].column", func(v *config.Config) {
 			v.Targets[0].Tags.Keys = append(v.Targets[0].Tags.Keys, config.TagKeyConfig{Key: "Team", MaxValues: 1})
@@ -175,6 +177,13 @@ func TestValidateV03CostBasesTagsAndCUR(t *testing.T) {
 		{"missing CUR tag mapping", "matching cur.tag_columns", func(v *config.Config) { v.Targets[0].CUR.TagColumns = nil }},
 		{"tag values", "max_values", func(v *config.Config) { v.Targets[0].Tags.Keys[0].MaxValues = 501 }},
 		{"tag series budget", "exceeds collection.tags.series_limit", func(v *config.Config) { v.Targets[0].Tags.Keys[0].MaxValues = 100 }},
+		{"CUR total series budget", "collection.cur.series_limit", func(v *config.Config) { v.Collection.CUR.SeriesLimit = 100 }},
+		{"CUR max currencies zero", "collection.cur.max_currencies", func(v *config.Config) { v.Collection.CUR.MaxCurrencies = 0 }},
+		{"CUR max currencies too large", "collection.cur.max_currencies", func(v *config.Config) { v.Collection.CUR.MaxCurrencies = 11 }},
+		{"CUR multi-currency series budget", "collection.cur.series_limit", func(v *config.Config) {
+			v.Collection.CUR.MaxCurrencies = 2
+			v.Collection.CUR.SeriesLimit = 200
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			current := value
@@ -188,5 +197,16 @@ func TestValidateV03CostBasesTagsAndCUR(t *testing.T) {
 				t.Fatalf("Validate()=%v want %q", err, test.path)
 			}
 		})
+	}
+}
+
+func TestValidateCURRegionReportsFormatValidation(t *testing.T) {
+	value := validConfig()
+	value.Targets[0].CUR = config.TargetCURConfig{
+		Enabled: true, Region: "not a region", Database: "billing", Table: "cur2", Workgroup: "exporter",
+		OutputLocation: "s3://results/exporter/", QueryTimeout: time.Minute, PollInterval: time.Second,
+	}
+	if err := config.Validate(value); err == nil || err.Error() != "targets[0].cur.region: must use a valid AWS region format" {
+		t.Fatalf("Validate()=%v", err)
 	}
 }

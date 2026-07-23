@@ -81,7 +81,7 @@ Required targets gate readiness through all enabled Cost Explorer collectors. Op
 
 v0.3 remains single-replica. See [ADR 0002](docs/adr/0002-ha-refresh-coordination.md) for the HA evaluation.
 
-Commitment, anomaly, tag, and CUR collectors are optional and do not gate readiness. CUR queries run only in background jobs through `StartQueryExecution`, bounded status polling, and paginated `GetQueryResults`; one deadline covers the complete lifecycle, and cancellation of a running query issues best-effort `StopQueryExecution`. Result metadata, headers, columns, row counts, and pagination tokens are validated before atomic publication. Prometheus scrapes only the resulting immutable snapshot.
+Commitment, anomaly, tag, and CUR collectors are optional and do not gate readiness. CUR targets carry an Athena region independent from the Cost Explorer region. CUR queries run only in background jobs through `StartQueryExecution`, bounded status polling, and paginated `GetQueryResults`; one deadline covers the complete lifecycle, and every nonterminal abnormal exit issues best-effort `StopQueryExecution`. Result metadata, headers, columns, row counts, currency count, and pagination tokens are validated before atomic publication. The CUR startup series budget includes `max_currencies`, and the collector enforces the same distinct-currency bound across total and Tag results before publishing. Prometheus scrapes only the resulting immutable snapshot.
 
 ## Compatibility
 

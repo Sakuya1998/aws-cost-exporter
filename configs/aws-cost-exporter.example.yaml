@@ -82,6 +82,7 @@ targets:
       #   max_values: 50 # included in the per-target Tag series budget
     cur:
       enabled: false
+      region: us-east-1
       database: ""
       table: ""
       workgroup: ""
@@ -140,6 +141,7 @@ collection:
     refresh_interval: 24h
     max_pages: 50
     max_rows: 5000
+    max_currencies: 1
     series_limit: 2000
 
 cache:

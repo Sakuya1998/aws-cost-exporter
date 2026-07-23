@@ -28,7 +28,7 @@ func TestReaderRunsFixedQueryAndMapsProviderBasis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := reader.ReadCosts(context.Background(), time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC), []cost.Basis{cost.BasisNet})
+	result, err := reader.QueryCosts(context.Background(), time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC), []cost.Basis{cost.BasisNet})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,12 +43,12 @@ func TestReaderRunsFixedQueryAndMapsProviderBasis(t *testing.T) {
 func TestReaderRejectsFailedAndOverLimitQueries(t *testing.T) {
 	value := config.TargetCURConfig{Database: "billing", Table: "cur2", Workgroup: "exporter", OutputLocation: "s3://results/", QueryTimeout: time.Second, PollInterval: time.Millisecond}
 	failed, _ := NewReader("payer", &stubAPI{state: athenatypes.QueryExecutionStateFailed}, value, 2, 10, nil, nil)
-	if _, err := failed.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
+	if _, err := failed.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
 		t.Fatal("accepted failed query")
 	}
 	over := &stubAPI{state: athenatypes.QueryExecutionStateSucceeded, rows: [][]string{{"window", "currency", "cost_basis", "amount"}, {"daily", "USD", "unblended", "1"}, {"month_to_date", "USD", "unblended", "2"}}}
 	limited, _ := NewReader("payer", over, value, 2, 1, nil, nil)
-	if _, err := limited.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
+	if _, err := limited.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
 		t.Fatal("accepted over-limit result")
 	}
 }
@@ -57,14 +57,14 @@ func TestReaderMapsTagRowsAndStopsOnCancellation(t *testing.T) {
 	value := config.TargetCURConfig{Database: "billing", Table: "cur2", Workgroup: "exporter", OutputLocation: "s3://results/", QueryTimeout: time.Second, PollInterval: time.Millisecond}
 	api := &stubAPI{state: athenatypes.QueryExecutionStateSucceeded, rows: [][]string{{"window", "currency", "cost_basis", "amount", "tag_key", "tag_value"}, {"daily", "USD", "amortized", "3", "Environment", "prod"}}}
 	reader, _ := NewReader("payer", api, value, 2, 10, nil, nil)
-	tags, err := reader.ReadTagCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisAmortized})
+	tags, err := reader.QueryTagCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisAmortized})
 	if err != nil || len(tags) != 1 || tags[0].TagValue != "prod" {
 		t.Fatalf("tags=%#v err=%v", tags, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	running, _ := NewReader("payer", &stubAPI{state: athenatypes.QueryExecutionStateRunning}, value, 2, 10, nil, nil)
-	if _, err := running.ReadCosts(ctx, time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
+	if _, err := running.QueryCosts(ctx, time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
 		t.Fatal("ignored cancellation")
 	}
 	if running.api.(*stubAPI).stops != 1 {
@@ -72,7 +72,7 @@ func TestReaderMapsTagRowsAndStopsOnCancellation(t *testing.T) {
 	}
 	for _, state := range []athenatypes.QueryExecutionState{athenatypes.QueryExecutionStateCancelled} {
 		failed, _ := NewReader("payer", &stubAPI{state: state}, value, 2, 10, nil, nil)
-		if _, err := failed.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
+		if _, err := failed.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
 			t.Fatal("accepted canceled query")
 		}
 	}
@@ -94,20 +94,29 @@ func TestReaderValidatesDependenciesAndMalformedResponses(t *testing.T) {
 	if reader, err := NewReader("payer", &stubAPI{}, invalidTiming, 1, 1, nil, nil); reader != nil || err == nil {
 		t.Fatal("accepted invalid Athena query timing")
 	}
-	for _, api := range []*stubAPI{{startErr: errors.New("start")}, {emptyID: true}, {emptyStatus: true}, {emptyResults: true}} {
+	for _, api := range []*stubAPI{{startErr: errors.New("start")}, {emptyID: true}, {emptyResults: true}} {
 		reader, err := NewReader("payer", api, value, 1, 10, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := reader.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
+		if _, err := reader.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
 			t.Fatalf("accepted malformed response from %#v", api)
+		}
+	}
+	for _, api := range []*stubAPI{{emptyStatus: true}, {statusErr: errors.New("status")}, {state: athenatypes.QueryExecutionState("unknown")}} {
+		reader, err := NewReader("payer", api, value, 1, 10, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := reader.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil || api.stops != 1 {
+			t.Fatalf("nonterminal failure error=%v stops=%d", err, api.stops)
 		}
 	}
 	timeoutValue := value
 	timeoutValue.QueryTimeout = 5 * time.Millisecond
 	timeoutValue.PollInterval = time.Millisecond
 	timeoutReader, _ := NewReader("payer", &stubAPI{state: athenatypes.QueryExecutionStateRunning}, timeoutValue, 1, 10, nil, nil)
-	if _, err := timeoutReader.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := timeoutReader.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("timeout error=%v", err)
 	}
 	if timeoutReader.api.(*stubAPI).stops != 1 {
@@ -118,7 +127,7 @@ func TestReaderValidatesDependenciesAndMalformedResponses(t *testing.T) {
 func TestReaderTimeoutCoversStartQueryExecution(t *testing.T) {
 	value := config.TargetCURConfig{Database: "billing", Table: "cur2", Workgroup: "exporter", OutputLocation: "s3://results/", QueryTimeout: 10 * time.Millisecond, PollInterval: time.Millisecond}
 	reader, _ := NewReader("payer", &stubAPI{blockStart: true}, value, 1, 10, nil, nil)
-	_, err := reader.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended})
+	_, err := reader.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended})
 	var classified *common.ClassifiedError
 	if !errors.As(err, &classified) || classified.Kind() != common.ErrorTimeout || !classified.Retryable() {
 		t.Fatalf("start timeout error=%v", err)
@@ -159,7 +168,7 @@ func TestReaderAppliesDualLimiterToEverySDKAttempt(t *testing.T) {
 	}
 	value := config.TargetCURConfig{Database: "billing", Table: "cur2", Workgroup: "exporter", OutputLocation: "s3://results/", QueryTimeout: time.Second, PollInterval: time.Millisecond}
 	reader, _ := NewReader("payer", client, value, 2, 10, nil, retryer)
-	result, err := reader.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended})
+	result, err := reader.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended})
 	if err != nil || len(result) != 1 {
 		t.Fatalf("SDK endpoint result=%#v err=%v", result, err)
 	}
@@ -178,7 +187,7 @@ func TestReaderPollsStateMachineAndPaginatesStrictResults(t *testing.T) {
 		},
 	}
 	reader, _ := NewReader("payer", api, value, 3, 2, nil, nil)
-	result, err := reader.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended})
+	result, err := reader.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended})
 	if err != nil || len(result) != 2 || api.statusCalls != 3 || api.resultCalls != 2 {
 		t.Fatalf("result=%#v err=%v status_calls=%d result_calls=%d", result, err, api.statusCalls, api.resultCalls)
 	}
@@ -188,7 +197,7 @@ func TestReaderPollsStateMachineAndPaginatesStrictResults(t *testing.T) {
 		{rows: nil, nextToken: "same"},
 	}}
 	reader, _ = NewReader("payer", duplicate, value, 3, 2, nil, nil)
-	if _, err := reader.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil || !strings.Contains(err.Error(), "pagination token") {
+	if _, err := reader.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil || !strings.Contains(err.Error(), "pagination token") {
 		t.Fatalf("duplicate token error=%v", err)
 	}
 }
@@ -209,7 +218,7 @@ func TestReaderRejectsUnexpectedMetadataHeadersAndRows(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			reader, _ := NewReader("payer", test.api, value, 2, 10, nil, nil)
-			if _, err := reader.ReadCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
+			if _, err := reader.QueryCosts(context.Background(), time.Now(), []cost.Basis{cost.BasisUnblended}); err == nil {
 				t.Fatal("accepted malformed Athena result")
 			}
 		})
@@ -221,7 +230,7 @@ func TestAmortizedQueryCoversCommitmentFeeRows(t *testing.T) {
 	if !ok {
 		t.Fatal("amortized basis is unsupported")
 	}
-	for _, required := range []string{"SavingsPlanCoveredUsage", "DiscountedUsage", "SavingsPlanRecurringFee", "RIFee", "savings_plan_total_commitment_to_date", "reservation_unused_amortized_upfront_fee_for_billing_period", "reservation_unused_recurring_fee"} {
+	for _, required := range []string{"SavingsPlanCoveredUsage", "DiscountedUsage", "SavingsPlanRecurringFee", "SavingsPlanNegation' THEN 0", "SavingsPlanUpfrontFee' THEN 0", "RIFee", "WHEN 'Fee' THEN CASE", "reservation_reservation_a_r_n", "savings_plan_total_commitment_to_date", "reservation_unused_amortized_upfront_fee_for_billing_period", "reservation_unused_recurring_fee"} {
 		if !strings.Contains(expression, required) {
 			t.Fatalf("amortized expression is missing %q: %s", required, expression)
 		}
@@ -257,7 +266,7 @@ func TestQueryStateMappingIsBounded(t *testing.T) {
 		{athenatypes.QueryExecutionStateSucceeded, QuerySucceeded},
 		{athenatypes.QueryExecutionStateFailed, QueryFailed},
 		{athenatypes.QueryExecutionStateCancelled, QueryCancelled},
-		{athenatypes.QueryExecutionState("unknown"), QueryFailed},
+		{athenatypes.QueryExecutionState("unknown"), QueryUnknown},
 	}
 	for _, value := range values {
 		if got := mapQueryState(value.input); got != value.want {
@@ -274,6 +283,7 @@ type stubAPI struct {
 	metadata                           *athenatypes.ResultSetMetadata
 	query                              string
 	startErr                           error
+	statusErr                          error
 	emptyID, emptyStatus, emptyResults bool
 	omitMetadata                       bool
 	blockStart                         bool
@@ -301,6 +311,9 @@ func (stub *stubAPI) StartQueryExecution(ctx context.Context, input *awsathena.S
 }
 func (stub *stubAPI) GetQueryExecution(context.Context, *awsathena.GetQueryExecutionInput, ...func(*awsathena.Options)) (*awsathena.GetQueryExecutionOutput, error) {
 	stub.statusCalls++
+	if stub.statusErr != nil {
+		return nil, stub.statusErr
+	}
 	if stub.emptyStatus {
 		return &awsathena.GetQueryExecutionOutput{}, nil
 	}

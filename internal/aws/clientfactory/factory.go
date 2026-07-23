@@ -182,7 +182,11 @@ func (factory *Factory) ForTarget(target appconfig.TargetConfig) (Clients, error
 			options.BaseEndpoint = aws.String(endpoint)
 		}
 	})
-	clients.Athena = athena.NewFromConfig(sdkConfig, func(options *athena.Options) {
+	athenaConfig := sdkConfig.Copy()
+	if target.CUR.Region != "" {
+		athenaConfig.Region = target.CUR.Region
+	}
+	clients.Athena = athena.NewFromConfig(athenaConfig, func(options *athena.Options) {
 		options.Retryer = clients.Retryer(awscommon.OperationStartQueryExecution)
 		if endpoint := strings.TrimSpace(factory.config.Endpoints.Athena); endpoint != "" {
 			options.BaseEndpoint = aws.String(endpoint)

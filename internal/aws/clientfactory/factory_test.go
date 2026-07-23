@@ -161,6 +161,31 @@ func TestFactoryStaticSourceIgnoresMalformedProcessAWSConfig(t *testing.T) {
 	}
 }
 
+func TestFactoryUsesTargetCURRegionOnlyForAthena(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "access")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	value := config.Default().AWS
+	value.Credentials.Sources = map[string]config.CredentialSourceConfig{"runtime": {Type: config.CredentialSourceDefaultChain}}
+	factory, err := New(context.Background(), value, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clients, err := factory.ForTarget(config.TargetConfig{
+		Name: "payer", AccountID: "111122223333", Credentials: config.TargetCredentialsConfig{Source: "runtime"},
+		CUR: config.TargetCURConfig{Enabled: true, Region: "eu-west-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := clients.Athena.Options().Region; got != "eu-west-1" {
+		t.Fatalf("Athena region=%q, want eu-west-1", got)
+	}
+	if got := clients.CostExplorer.Options().Region; got != "us-east-1" {
+		t.Fatalf("Cost Explorer region=%q, want us-east-1", got)
+	}
+}
+
 func TestFactoryKeepsUnavailableProfileTargetIsolated(t *testing.T) {
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "missing-credentials"))

@@ -85,6 +85,7 @@ config:
           keys: []
         cur:
           enabled: false
+          region: us-east-1
     collection:
       failure_backoff:
         max_attempts: 3
@@ -110,6 +111,7 @@ config:
         refresh_interval: 24h
         max_pages: 50
         max_rows: 5000
+        max_currencies: 1
         series_limit: 2000
 
 awsSharedConfig:

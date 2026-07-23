@@ -248,6 +248,13 @@ func (value Snapshot) ValidatePartial(target identity.TargetID) error {
 
 // ValidateUnique rejects duplicate Prometheus label sets before publication.
 func (value Snapshot) ValidateUnique() error {
+	validIdentity := true
+	value.ForEachCost(func(item cost.Cost) { validIdentity = validIdentity && item.Provider.Valid() && item.Basis.Valid() })
+	value.ForEachForecast(func(item cost.Forecast) { validIdentity = validIdentity && item.Provider.Valid() && item.Basis.Valid() })
+	value.ForEachTagCost(func(item tagcost.Cost) { validIdentity = validIdentity && item.Provider.Valid() && item.Basis.Valid() })
+	if !validIdentity {
+		return fmt.Errorf("%w: invalid provider or cost basis", ErrInvalidSnapshot)
+	}
 	seen := make(map[string]struct{}, value.SeriesCount())
 	add := func(key string) bool {
 		if _, exists := seen[key]; exists {
@@ -258,11 +265,9 @@ func (value Snapshot) ValidateUnique() error {
 	}
 	valid := true
 	value.ForEachCost(func(item cost.Cost) {
-		valid = valid && item.Provider.Valid() && item.Basis.Valid()
 		valid = valid && add(fmt.Sprintf("cost|%s|%s|%s|%s|%s|%s|%s", item.Target, item.Provider, item.Basis, item.Window, item.Dimension.Kind(), item.Dimension.Value(), item.Amount.Currency()))
 	})
 	value.ForEachForecast(func(item cost.Forecast) {
-		valid = valid && item.Provider.Valid() && item.Basis.Valid()
 		valid = valid && add(fmt.Sprintf("forecast|%s|%s|%s|%s", item.Target, item.Provider, item.Basis, item.Mean.Currency()))
 	})
 	value.ForEachBudget(func(item budget.Budget) {
@@ -279,7 +284,6 @@ func (value Snapshot) ValidateUnique() error {
 		valid = valid && add(fmt.Sprintf("account|%s|%s|%s|%s", item.Target, item.AccountID, item.Name, item.Status))
 	})
 	value.ForEachTagCost(func(item tagcost.Cost) {
-		valid = valid && item.Provider.Valid() && item.Basis.Valid()
 		valid = valid && add(fmt.Sprintf("tag|%s|%s|%s|%s|%s|%s|%s", item.Target, item.Provider, item.Basis, item.Window, item.TagKey, item.TagValue, item.Amount.Currency()))
 	})
 	value.ForEachCommitment(func(item commitment.Summary) {

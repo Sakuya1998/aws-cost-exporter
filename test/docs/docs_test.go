@@ -15,6 +15,7 @@ type policy struct {
 }
 
 type statement struct {
+	Sid      string      `json:"Sid"`
 	Effect   string      `json:"Effect"`
 	Action   interface{} `json:"Action"`
 	Resource interface{} `json:"Resource"`
@@ -34,7 +35,7 @@ func TestREADMEContainsDeploymentAndRuntimeContracts(t *testing.T) {
 		"Cost Explorer API requests are billed", "not a financial reconciliation system",
 		"Never sum different `currency`", "does not call AWS during a Prometheus scrape",
 		"max_pages", "series_limit", "8 `GetCostAndUsage`",
-		"cost_bases", "overflow_label", "shutdown_timeout",
+		"cost_bases", "max_currencies", "overflow_label", "shutdown_timeout",
 		"scheduler_shutdown_timeouts_total",
 		"AWSCostExplorerPaginationSpike", "AWSCostExplorerThrottleSustained",
 		"pagination_pages_total", "Apache License", "LICENSE",
@@ -75,7 +76,7 @@ func TestTroubleshootingCoversOperationalFailureModes(t *testing.T) {
 		"pagination_pages_total", "SDK retries",
 		"`__other__`", "dimension_overflow_values_total", "backfill",
 		"scheduler_shutdown_timeouts_total", "overflow_label",
-		"currency", "today through month end", "replica", "debug",
+		"currency", "max_currencies", "today through month end", "replica", "debug",
 	} {
 		if !strings.Contains(content, fragment) {
 			t.Errorf("troubleshooting guide lacks %q", fragment)
@@ -87,7 +88,8 @@ func TestIAMExamplesAreValidAndLeastPrivilege(t *testing.T) {
 	directory := filepath.Join("..", "..", "examples", "iam")
 	files := []string{
 		"mvp-readonly.json", "organizations-readonly.json",
-		"budgets-readonly.json", "assume-role-trust.json", "assume-role-permissions.json",
+		"budgets-readonly.json", "commitments-anomalies-readonly.json", "cur-athena-readonly.json",
+		"assume-role-trust.json", "assume-role-permissions.json",
 	}
 	for _, name := range files {
 		var document any
@@ -125,6 +127,56 @@ func TestIAMExamplesAreValidAndLeastPrivilege(t *testing.T) {
 	}
 	if budgets := read(t, filepath.Join(directory, "budgets-readonly.json")); !strings.Contains(budgets, "budgets:ViewBudget") {
 		t.Error("Budgets example lacks budgets:ViewBudget")
+	}
+	assertCURPolicy(t, filepath.Join(directory, "cur-athena-readonly.json"))
+}
+
+func assertCURPolicy(t *testing.T, path string) {
+	t.Helper()
+	var document policy
+	if err := json.Unmarshal([]byte(read(t, path)), &document); err != nil {
+		t.Fatal(err)
+	}
+	statements := make(map[string]statement, len(document.Statement))
+	for _, item := range document.Statement {
+		statements[item.Sid] = item
+	}
+
+	assertStatement := func(sid string, actions, resources []string) {
+		t.Helper()
+		item, ok := statements[sid]
+		if !ok {
+			t.Errorf("CUR policy lacks %s statement", sid)
+			return
+		}
+		encoded, _ := json.Marshal(item)
+		text := string(encoded)
+		for _, value := range append(actions, resources...) {
+			if !strings.Contains(text, value) {
+				t.Errorf("CUR policy %s lacks %s", sid, value)
+			}
+		}
+	}
+	assertStatement("AccessCURBuckets",
+		[]string{"s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"},
+		[]string{"arn:aws:s3:::example-cur-bucket", "arn:aws:s3:::example-athena-results"})
+	assertStatement("ReadCURObjects", []string{"s3:GetObject"}, []string{"arn:aws:s3:::example-cur-bucket/cur-prefix/*"})
+	assertStatement("AccessAthenaResults",
+		[]string{"s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"},
+		[]string{"arn:aws:s3:::example-athena-results/aws-cost-exporter/*"})
+
+	for _, sid := range []string{"ReadCURObjects", "AccessAthenaResults"} {
+		encoded, _ := json.Marshal(statements[sid])
+		if strings.Contains(string(encoded), "s3:GetBucketLocation") || strings.Contains(string(encoded), "s3:ListBucket") {
+			t.Errorf("CUR policy %s applies bucket actions to object ARNs", sid)
+		}
+	}
+}
+
+func TestCURDocumentationRequiresMatchingAthenaRegion(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", "README.md"))
+	if !strings.Contains(content, "Athena workgroup ARN region must match `targets[].cur.region`") {
+		t.Error("README does not bind the Athena workgroup ARN region to targets[].cur.region")
 	}
 }
 

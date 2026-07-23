@@ -149,6 +149,7 @@ type TargetAnomaliesConfig struct {
 
 type TargetCURConfig struct {
 	Enabled        bool           `mapstructure:"enabled" yaml:"enabled"`
+	Region         string         `mapstructure:"region" yaml:"region"`
 	Database       string         `mapstructure:"database" yaml:"database"`
 	Table          string         `mapstructure:"table" yaml:"table"`
 	Workgroup      string         `mapstructure:"workgroup" yaml:"workgroup"`
@@ -227,6 +228,7 @@ type CollectionCURConfig struct {
 	RefreshInterval time.Duration `mapstructure:"refresh_interval" yaml:"refresh_interval"`
 	MaxPages        int           `mapstructure:"max_pages" yaml:"max_pages"`
 	MaxRows         int           `mapstructure:"max_rows" yaml:"max_rows"`
+	MaxCurrencies   int           `mapstructure:"max_currencies" yaml:"max_currencies"`
 	SeriesLimit     int           `mapstructure:"series_limit" yaml:"series_limit"`
 }
 
@@ -315,7 +317,7 @@ func Default() Config {
 			Commitments:   CollectionCommitmentsConfig{RefreshInterval: 24 * time.Hour, MaxPages: 20, SeriesLimit: 20},
 			Anomalies:     CollectionAnomaliesConfig{RefreshInterval: 6 * time.Hour, MaxPages: 20, SeriesLimit: 10},
 			Tags:          CollectionTagsConfig{RefreshInterval: 6 * time.Hour, MaxPages: 50, SeriesLimit: 500},
-			CUR:           CollectionCURConfig{RefreshInterval: 24 * time.Hour, MaxPages: 50, MaxRows: 5000, SeriesLimit: 2000},
+			CUR:           CollectionCURConfig{RefreshInterval: 24 * time.Hour, MaxPages: 50, MaxRows: 5000, MaxCurrencies: 1, SeriesLimit: 2000},
 		},
 		Cache:     CacheConfig{FreshnessTTL: 12 * time.Hour, StaleAfter: 24 * time.Hour},
 		Telemetry: TelemetryConfig{IncludeGoCollector: true, IncludeProcessCollector: true},

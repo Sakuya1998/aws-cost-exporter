@@ -11,6 +11,7 @@ const (
 	QuerySucceeded QueryState = "succeeded"
 	QueryFailed    QueryState = "failed"
 	QueryCancelled QueryState = "cancelled"
+	QueryUnknown   QueryState = "unknown"
 )
 
 // QueryExecution contains only safe state required by the application.
@@ -32,6 +33,6 @@ func mapQueryState(value athenatypes.QueryExecutionState) QueryState {
 	case athenatypes.QueryExecutionStateCancelled:
 		return QueryCancelled
 	default:
-		return QueryFailed
+		return QueryUnknown
 	}
 }

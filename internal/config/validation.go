@@ -128,6 +128,7 @@ func validateBase(value Config) error {
 		{value.Collection.CUR.RefreshInterval <= value.AWS.RequestTimeout, "collection.cur.refresh_interval", "must exceed aws.request_timeout"},
 		{value.Collection.CUR.MaxPages <= 0 || value.Collection.CUR.MaxPages > maxPages, "collection.cur.max_pages", "must be between 1 and 200"},
 		{value.Collection.CUR.MaxRows <= 0 || value.Collection.CUR.MaxRows > 100000, "collection.cur.max_rows", "must be between 1 and 100000"},
+		{value.Collection.CUR.MaxCurrencies <= 0 || value.Collection.CUR.MaxCurrencies > 10, "collection.cur.max_currencies", "must be between 1 and 10"},
 		{value.Collection.CUR.SeriesLimit <= 0 || value.Collection.CUR.SeriesLimit > 20000, "collection.cur.series_limit", "must be between 1 and 20000"},
 		{value.Cache.FreshnessTTL < value.Collection.RefreshInterval, "cache.freshness_ttl", "must not be less than collection.refresh_interval"},
 		{value.Cache.StaleAfter < value.Cache.FreshnessTTL, "cache.stale_after", "must not be less than freshness_ttl"},
@@ -193,7 +194,10 @@ func validateTargets(value Config) error {
 		if err := validateCUR(path, target); err != nil {
 			return err
 		}
-		if err := validateTags(path, target, value.Collection.Tags.SeriesLimit, len(value.Collection.CostExplorer.CostBases)); err != nil {
+		if err := validateTags(path, target, value.Collection.Tags.SeriesLimit, len(value.Collection.CostExplorer.CostBases), value.Collection.CUR.MaxCurrencies); err != nil {
+			return err
+		}
+		if err := validateCURSeriesBudget(path, target, value.Collection.CUR.SeriesLimit, len(value.Collection.CostExplorer.CostBases), value.Collection.CUR.MaxCurrencies); err != nil {
 			return err
 		}
 	}
@@ -214,18 +218,22 @@ func validateTargets(value Config) error {
 var sqlIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 var workgroupPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 var s3LocationPattern = regexp.MustCompile(`^s3://[A-Za-z0-9][A-Za-z0-9.-]{1,61}[A-Za-z0-9]/.+$`)
+var awsRegionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z0-9]+)+-[0-9]+$`)
 
 func validateCUR(path string, target TargetConfig) error {
 	if !target.CUR.Enabled {
 		return nil
 	}
 	checks := []struct{ value, field string }{
-		{target.CUR.Database, "database"}, {target.CUR.Table, "table"}, {target.CUR.Workgroup, "workgroup"}, {target.CUR.OutputLocation, "output_location"},
+		{target.CUR.Region, "region"}, {target.CUR.Database, "database"}, {target.CUR.Table, "table"}, {target.CUR.Workgroup, "workgroup"}, {target.CUR.OutputLocation, "output_location"},
 	}
 	for _, check := range checks {
 		if strings.TrimSpace(check.value) == "" || check.value != strings.TrimSpace(check.value) {
 			return fmt.Errorf("%s.cur.%s: must be non-empty without surrounding whitespace", path, check.field)
 		}
+	}
+	if !awsRegionPattern.MatchString(target.CUR.Region) {
+		return fmt.Errorf("%s.cur.region: must use a valid AWS region format", path)
 	}
 	if !sqlIdentifierPattern.MatchString(target.CUR.Database) {
 		return fmt.Errorf("%s.cur.database: must be a safe SQL identifier", path)
@@ -272,7 +280,7 @@ func validateCUR(path string, target TargetConfig) error {
 	return nil
 }
 
-func validateTags(path string, target TargetConfig, seriesLimit, basisCount int) error {
+func validateTags(path string, target TargetConfig, seriesLimit, basisCount, maxCurrencies int) error {
 	if !target.Tags.Enabled {
 		return nil
 	}
@@ -287,7 +295,6 @@ func validateTags(path string, target TargetConfig, seriesLimit, basisCount int)
 	for _, item := range target.CUR.TagColumns {
 		columns[item.Key] = struct{}{}
 	}
-	worstCaseValues := 0
 	for index, key := range target.Tags.Keys {
 		if key.Key == "" || key.Key != strings.TrimSpace(key.Key) {
 			return fmt.Errorf("%s.tags.keys[%d].key: invalid", path, index)
@@ -299,7 +306,6 @@ func validateTags(path string, target TargetConfig, seriesLimit, basisCount int)
 			return fmt.Errorf("%s.tags.keys[%d].key: must be unique", path, index)
 		}
 		seen[key.Key] = struct{}{}
-		worstCaseValues += key.MaxValues
 		if target.CUR.Enabled {
 			if _, exists := columns[key.Key]; !exists {
 				return fmt.Errorf("%s.tags.keys[%d].key: requires a matching cur.tag_columns entry", path, index)
@@ -309,10 +315,36 @@ func validateTags(path string, target TargetConfig, seriesLimit, basisCount int)
 	if target.CUR.Enabled && len(columns) != len(seen) {
 		return fmt.Errorf("%s.cur.tag_columns: must exactly match tags.keys", path)
 	}
-	if worstCaseValues*2*max(1, basisCount) > seriesLimit {
+	currencyCount := 1
+	if target.CUR.Enabled {
+		currencyCount = maxCurrencies
+	}
+	if tagSeriesBudget(target, basisCount, currencyCount) > seriesLimit {
 		return fmt.Errorf("%s.tags.keys: exceeds collection.tags.series_limit", path)
 	}
 	return nil
+}
+
+func validateCURSeriesBudget(path string, target TargetConfig, seriesLimit, basisCount, maxCurrencies int) error {
+	if !target.CUR.Enabled {
+		return nil
+	}
+	required := 2 * max(1, basisCount) * max(1, maxCurrencies)
+	if target.Tags.Enabled {
+		required += tagSeriesBudget(target, basisCount, maxCurrencies)
+	}
+	if required > seriesLimit {
+		return fmt.Errorf("collection.cur.series_limit: must be at least %d for %s.cur", required, path)
+	}
+	return nil
+}
+
+func tagSeriesBudget(target TargetConfig, basisCount, currencyCount int) int {
+	values := 0
+	for _, key := range target.Tags.Keys {
+		values += key.MaxValues
+	}
+	return values * 2 * max(1, basisCount) * max(1, currencyCount)
 }
 
 func validateAssumeRole(path string, target TargetConfig, roles map[string]struct{}) error {

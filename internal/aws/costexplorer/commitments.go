@@ -45,10 +45,6 @@ func NewCommitmentReader(target identity.TargetID, api CommitmentAPI, maxPages i
 	return &CommitmentReader{target: target, api: api, maxPages: maxPages, observer: observer, retryer: retryer}, nil
 }
 
-func (reader *CommitmentReader) Read(ctx context.Context, reference time.Time) (commitment.Summary, error) {
-	return reader.ReadSavingsPlans(ctx, reference)
-}
-
 func (reader *CommitmentReader) ReadSavingsPlansUtilization(ctx context.Context, reference time.Time) (commitment.Summary, error) {
 	result := commitment.Summary{Target: reader.target, TimeUnit: "MONTHLY", Type: commitment.TypeSavingsPlan}
 	err := reader.readSavingsPlans(ctx, commitmentPeriod(reference), &result)
@@ -73,32 +69,6 @@ func (reader *CommitmentReader) ReadReservationCoverage(ctx context.Context, ref
 func commitmentPeriod(reference time.Time) *cetypes.DateInterval {
 	period := cost.MonthContaining(reference)
 	return &cetypes.DateInterval{Start: aws.String(period.Start().Format(time.DateOnly)), End: aws.String(cost.DayContaining(reference).End().Format(time.DateOnly))}
-}
-
-func (reader *CommitmentReader) ReadSavingsPlans(ctx context.Context, reference time.Time) (commitment.Summary, error) {
-	period := cost.MonthContaining(reference)
-	inputPeriod := &cetypes.DateInterval{Start: aws.String(period.Start().Format(time.DateOnly)), End: aws.String(cost.DayContaining(reference).End().Format(time.DateOnly))}
-	result := commitment.Summary{Target: reader.target, TimeUnit: "MONTHLY", Type: commitment.TypeSavingsPlan}
-	if err := reader.readSavingsPlans(ctx, inputPeriod, &result); err != nil {
-		return commitment.Summary{}, err
-	}
-	if err := reader.readSavingsCoverage(ctx, inputPeriod, &result); err != nil {
-		return commitment.Summary{}, err
-	}
-	return result, nil
-}
-
-func (reader *CommitmentReader) ReadReservations(ctx context.Context, reference time.Time) (commitment.Summary, error) {
-	period := cost.MonthContaining(reference)
-	inputPeriod := &cetypes.DateInterval{Start: aws.String(period.Start().Format(time.DateOnly)), End: aws.String(cost.DayContaining(reference).End().Format(time.DateOnly))}
-	result := commitment.Summary{Target: reader.target, TimeUnit: "MONTHLY", Type: commitment.TypeReservation}
-	if err := reader.readReservations(ctx, inputPeriod, &result); err != nil {
-		return commitment.Summary{}, err
-	}
-	if err := reader.readReservationCoverage(ctx, inputPeriod, &result); err != nil {
-		return commitment.Summary{}, err
-	}
-	return result, nil
 }
 
 func (reader *CommitmentReader) readSavingsCoverage(ctx context.Context, period *cetypes.DateInterval, result *commitment.Summary) error {

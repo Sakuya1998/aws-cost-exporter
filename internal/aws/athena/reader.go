@@ -3,6 +3,7 @@ package athena
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -58,26 +59,20 @@ func NewReader(target identity.TargetID, api API, value config.TargetCURConfig, 
 	return &Reader{target: target, api: api, config: value, maxPages: maxPages, maxRows: maxRows, observer: observer, retryer: retryer}, nil
 }
 
-func (reader *Reader) ReadCosts(ctx context.Context, reference time.Time, bases []cost.Basis) ([]cost.Cost, error) {
+func (reader *Reader) QueryCosts(ctx context.Context, reference time.Time, bases []cost.Basis) ([]cost.Cost, error) {
 	rows, err := reader.query(ctx, reference, bases, false)
 	if err != nil {
 		return nil, err
 	}
 	return mapCosts(reader.target, reference, rows)
 }
-func (reader *Reader) QueryCosts(ctx context.Context, reference time.Time, bases []cost.Basis) ([]cost.Cost, error) {
-	return reader.ReadCosts(ctx, reference, bases)
-}
 
-func (reader *Reader) ReadTagCosts(ctx context.Context, reference time.Time, bases []cost.Basis) ([]tagcost.Cost, error) {
+func (reader *Reader) QueryTagCosts(ctx context.Context, reference time.Time, bases []cost.Basis) ([]tagcost.Cost, error) {
 	rows, err := reader.query(ctx, reference, bases, true)
 	if err != nil {
 		return nil, err
 	}
 	return mapTagCosts(reader.target, reference, rows)
-}
-func (reader *Reader) QueryTagCosts(ctx context.Context, reference time.Time, bases []cost.Basis) ([]tagcost.Cost, error) {
-	return reader.ReadTagCosts(ctx, reference, bases)
 }
 
 func (reader *Reader) query(ctx context.Context, reference time.Time, bases []cost.Basis, tags bool) ([][]string, error) {
@@ -124,10 +119,10 @@ func (reader *Reader) query(ctx context.Context, reference time.Time, bases []co
 			if queryCtx.Err() != nil {
 				return nil, reader.stopPendingQuery(ctx, id, queryCtx.Err())
 			}
-			return nil, common.ClassifyError(callErr)
+			return nil, reader.stopPendingQuery(ctx, id, common.ClassifyError(callErr))
 		}
 		if status == nil || status.QueryExecution == nil || status.QueryExecution.Status == nil {
-			return nil, fmt.Errorf("athena query returned no status")
+			return nil, reader.stopPendingQuery(ctx, id, fmt.Errorf("athena query returned no status"))
 		}
 		execution := QueryExecution{ID: id, State: mapQueryState(status.QueryExecution.Status.State)}
 		switch execution.State {
@@ -135,6 +130,8 @@ func (reader *Reader) query(ctx context.Context, reference time.Time, bases []co
 			return reader.results(queryCtx, id, expectedColumns)
 		case QueryFailed, QueryCancelled:
 			return nil, fmt.Errorf("athena query did not succeed: %s", execution.State)
+		case QueryUnknown:
+			return nil, reader.stopPendingQuery(ctx, id, fmt.Errorf("athena query returned an unsupported state"))
 		}
 		timer := time.NewTimer(reader.config.PollInterval)
 		select {
@@ -214,6 +211,10 @@ func (reader *Reader) stopPendingQuery(parent context.Context, id string, cause 
 		}
 	})
 	common.ObserveCall(reader.observer, reader.target, common.OperationStopQueryExecution, started, err)
+	var classified *common.ClassifiedError
+	if errors.As(cause, &classified) {
+		return cause
+	}
 	return common.ClassifyError(cause)
 }
 
@@ -298,7 +299,7 @@ func basisExpression(value cost.Basis) (string, bool) {
 	case cost.BasisUnblended:
 		return "COALESCE(line_item_unblended_cost, 0)", true
 	case cost.BasisAmortized:
-		return "CASE line_item_line_item_type WHEN 'SavingsPlanCoveredUsage' THEN COALESCE(savings_plan_savings_plan_effective_cost, 0) WHEN 'DiscountedUsage' THEN COALESCE(reservation_effective_cost, 0) WHEN 'SavingsPlanRecurringFee' THEN COALESCE(savings_plan_total_commitment_to_date, 0) - COALESCE(savings_plan_used_commitment, 0) WHEN 'RIFee' THEN COALESCE(reservation_unused_amortized_upfront_fee_for_billing_period, 0) + COALESCE(reservation_unused_recurring_fee, 0) ELSE COALESCE(line_item_unblended_cost, 0) END", true
+		return "CASE line_item_line_item_type WHEN 'SavingsPlanCoveredUsage' THEN COALESCE(savings_plan_savings_plan_effective_cost, 0) WHEN 'DiscountedUsage' THEN COALESCE(reservation_effective_cost, 0) WHEN 'SavingsPlanRecurringFee' THEN COALESCE(savings_plan_total_commitment_to_date, 0) - COALESCE(savings_plan_used_commitment, 0) WHEN 'SavingsPlanNegation' THEN 0 WHEN 'SavingsPlanUpfrontFee' THEN 0 WHEN 'RIFee' THEN COALESCE(reservation_unused_amortized_upfront_fee_for_billing_period, 0) + COALESCE(reservation_unused_recurring_fee, 0) WHEN 'Fee' THEN CASE WHEN NULLIF(reservation_reservation_a_r_n, '') IS NOT NULL THEN 0 ELSE COALESCE(line_item_unblended_cost, 0) END ELSE COALESCE(line_item_unblended_cost, 0) END", true
 	case cost.BasisNet:
 		return "COALESCE(line_item_net_unblended_cost, line_item_unblended_cost, 0)", true
 	default:

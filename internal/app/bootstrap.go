@@ -220,7 +220,7 @@ func buildJobs(value config.Config, factory *clientfactory.Factory, telemetry *a
 			if readerErr != nil {
 				return nil, nil, readerErr
 			}
-			collector, collectorErr := curcollector.New(target, reader, configuredCostBases(value.Collection.CostExplorer.CostBases), targetConfig.Tags.Enabled, value.Collection.CUR.SeriesLimit, value.Collection.Tags.SeriesLimit, targetConfig.Tags.Keys, value.Collection.CostExplorer.Dimensions.OverflowLabel, targetOverflowObserver{target: target, telemetry: telemetry})
+			collector, collectorErr := curcollector.New(target, reader, configuredCostBases(value.Collection.CostExplorer.CostBases), targetConfig.Tags.Enabled, value.Collection.CUR.SeriesLimit, value.Collection.Tags.SeriesLimit, value.Collection.CUR.MaxCurrencies, targetConfig.Tags.Keys, value.Collection.CostExplorer.Dimensions.OverflowLabel, targetOverflowObserver{target: target, telemetry: telemetry})
 			if collectorErr != nil {
 				return nil, nil, collectorErr
 			}

@@ -111,6 +111,7 @@ targets:
       keys: []
     cur:
       enabled: false
+      region: us-east-1
       database: ""
       table: ""
       workgroup: ""
@@ -132,14 +133,16 @@ Budgets requires a non-empty exact-name allowlist and exports only `COST` budget
 
 `collection.cost_explorer.cost_bases` is a non-empty subset of `unblended`, `amortized`, and `net`. Every cost series includes `provider` and `cost_basis`; do not sum across either label. Commitment and anomaly collectors expose account-level summaries only and never use plan IDs, anomaly IDs, service names, root causes, or raw AWS messages as labels.
 
-CUR requires a pre-created CUR 2.0 table and Athena workgroup. The exporter generates fixed read-only queries and polls Athena asynchronously; arbitrary SQL is not accepted. Configure `cur.tag_columns` to map each allowlisted public tag key to one validated CUR column. Failed, canceled, timed-out, over-limit, or malformed queries retain the previous snapshot.
+CUR requires a pre-created CUR 2.0 table and Athena workgroup. The Athena workgroup ARN region must match `targets[].cur.region`, and that region must also contain the Glue catalog; this is independent from the Cost Explorer `aws.region`, which remains `us-east-1`. The exporter generates fixed read-only queries and polls Athena asynchronously; arbitrary SQL is not accepted. Configure `cur.tag_columns` to map each allowlisted public tag key to one validated CUR column. `collection.cur.max_currencies` bounds the distinct currency union returned by total and Tag queries; exceeding it rejects the complete refresh and retains the previous snapshot. Failed, canceled, timed-out, over-limit, or malformed queries retain the previous snapshot.
 
-CUR amortized cost uses AWS CUR 2.0 line-item semantics: covered usage uses Savings Plans or RI effective cost, Savings Plans recurring fees contribute unused commitment, RI fee rows contribute unused amortized upfront and recurring fees, and other rows use unblended cost. Net cost uses `line_item_net_unblended_cost` with unblended fallback for rows where AWS leaves the net column empty. These bases remain separate series and must not be added together.
+CUR amortized cost uses AWS CUR 2.0 line-item semantics: covered usage uses Savings Plans or RI effective cost, Savings Plans recurring fees contribute unused commitment, RI fee rows contribute unused amortized upfront and recurring fees, and Savings Plans negation/upfront plus reservation upfront fee rows are excluded to prevent double counting. Other rows use unblended cost. Net cost uses `line_item_net_unblended_cost` with unblended fallback for rows where AWS leaves the net column empty. These bases remain separate series and must not be added together.
 
 Important bounds:
 
 - `server.max_in_flight`: 1..1000; `collection.max_concurrency`: 1..100.
-- The per-target Tag worst case is `sum(keys[].max_values) * 2 windows * number of cost bases` and must not exceed `collection.tags.series_limit`.
+- The Cost Explorer Tag worst case is `sum(keys[].max_values) * 2 windows * number of cost bases` and must not exceed `collection.tags.series_limit`.
+- The CUR Tag worst case multiplies that budget by `collection.cur.max_currencies`; it must still fit within `collection.tags.series_limit`.
+- For a CUR target, `max_currencies * (2 total-cost windows * cost bases + per-currency Tag budget)` must fit within `collection.cur.series_limit`.
 - `cur.tag_columns` keys and physical CUR column names must both be unique.
 
 - `targets` and credential sources: 1–20.
@@ -149,7 +152,7 @@ Important bounds:
 - all `max_pages`: 1–200.
 - Cost Explorer and Organizations `series_limit`: at most 2000; Budgets: at most 500.
 - Tag keys: at most 20 per target; each `max_values` is 1..500 and overflow is aggregated.
-- CUR: at most 200 pages, 100,000 rows, and 20,000 series per collector refresh.
+- CUR: at most 200 pages, 100,000 rows, 1..10 currencies, and 20,000 series per collector refresh.
 - `collection.jitter_ratio`: finite and 0–0.5.
 - `collection.cost_explorer.cost_bases`: unique subset of `unblended`, `amortized`, and `net`.
 - `collection.cost_explorer.dimensions.overflow_label` must already be trimmed and must not collide with provider values.
@@ -200,7 +203,7 @@ approximate Cost Explorer requests per refresh = T * (((8 + 2*K) * B * P) + fore
 
 SDK retries can produce additional billable HTTP attempts. `aws_cost_exporter_aws_api_requests_total` counts logical SDK operations, `aws_cost_exporter_pagination_pages_total` counts successfully read pages, and `aws_cost_exporter_aws_api_retries_total` counts authorized retry attempts. They are related but not interchangeable with the AWS invoice.
 
-Athena is billed by data scanned. The exporter submits fixed aggregate queries only on the configured CUR refresh interval, never during scrape. `query_timeout` covers submission, polling, and result pagination; cancellation or timeout while a query is still running triggers a best-effort `StopQueryExecution`. Partition the CUR table by billing period, use a dedicated workgroup with scan limits, and monitor Athena costs before reducing the default 24-hour interval.
+Athena is billed by data scanned. The exporter submits fixed aggregate queries only on the configured CUR refresh interval, never during scrape. `query_timeout` covers submission, polling, and result pagination; any abnormal exit before Athena reports a terminal state triggers a best-effort `StopQueryExecution`. Partition the CUR table by billing period, use a dedicated workgroup with scan limits, and monitor Athena costs before reducing the default 24-hour interval.
 
 Both initial attempts and SDK retries acquire the global limiter and then the target limiter. A scheduled collector run is additionally bounded by `collection.failure_backoff.max_attempts`; after that budget is exhausted it waits for the next normal interval. Collectors for one target run serially so a slow account cannot occupy every global collection slot. Tighten target filters, increase refresh intervals, or reduce `max_pages` before raising rate limits. `series_limit` bounds Prometheus cardinality but does not reduce Cost Explorer pages.
 

@@ -2,6 +2,7 @@ package costexplorer
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 
 	"github.com/sakuya1998/aws-cost-exporter/internal/aws/common"
+	commitmentcollector "github.com/sakuya1998/aws-cost-exporter/internal/collector/commitment"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/commitment"
 )
 
@@ -19,27 +21,60 @@ func TestCommitmentReaderMapsBoundedSavingsAndReservationSummaries(t *testing.T)
 		t.Fatal(err)
 	}
 	reference := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
-	savings, err := reader.ReadSavingsPlans(context.Background(), reference)
+	savingsUtilization, err := reader.ReadSavingsPlansUtilization(context.Background(), reference)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if savings.Type != commitment.TypeSavingsPlan || savings.UtilizationRatio != .8 || savings.CoverageRatio != .75 || savings.NetSavings.Amount() != 4 || savings.CoveredSpend.Amount() != 75 || savings.HasUnusedHours {
-		t.Fatalf("savings=%#v", savings)
+	if savingsUtilization.Type != commitment.TypeSavingsPlan || savingsUtilization.UtilizationRatio != .8 || savingsUtilization.NetSavings.Amount() != 4 || savingsUtilization.HasCoverage || savingsUtilization.HasUnusedHours {
+		t.Fatalf("savings utilization=%#v", savingsUtilization)
 	}
-	reservation, err := reader.ReadReservations(context.Background(), reference)
+	savingsCoverage, err := reader.ReadSavingsPlansCoverage(context.Background(), reference)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reservation.Type != commitment.TypeReservation || reservation.UtilizationRatio != .5 || reservation.CoverageRatio != .6 || reservation.UnusedHours != 3 || reservation.OnDemandCost.Amount() != 40 {
-		t.Fatalf("reservation=%#v", reservation)
+	if savingsCoverage.CoverageRatio != .75 || savingsCoverage.CoveredSpend.Amount() != 75 || savingsCoverage.HasUtilization {
+		t.Fatalf("savings coverage=%#v", savingsCoverage)
 	}
-	for _, call := range []func(context.Context, time.Time) (commitment.Summary, error){reader.ReadSavingsPlansUtilization, reader.ReadSavingsPlansCoverage, reader.ReadReservationUtilization, reader.ReadReservationCoverage} {
-		if _, err := call(context.Background(), reference); err != nil {
-			t.Fatal(err)
-		}
+	reservationUtilization, err := reader.ReadReservationUtilization(context.Background(), reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reservationUtilization.Type != commitment.TypeReservation || reservationUtilization.UtilizationRatio != .5 || reservationUtilization.UnusedHours != 3 || reservationUtilization.HasCoverage {
+		t.Fatalf("reservation utilization=%#v", reservationUtilization)
+	}
+	reservationCoverage, err := reader.ReadReservationCoverage(context.Background(), reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reservationCoverage.CoverageRatio != .6 || reservationCoverage.OnDemandCost.Amount() != 40 || reservationCoverage.HasUtilization {
+		t.Fatalf("reservation coverage=%#v", reservationCoverage)
 	}
 	if value, err := NewCommitmentReader("payer", nil, 1, nil, nil); value != nil || err == nil {
 		t.Fatal("accepted nil API")
+	}
+}
+
+func TestCommitmentReaderHasOneOrchestrationPathAndFeedsCollector(t *testing.T) {
+	reader, err := NewCommitmentReader("payer", commitmentStub{}, 2, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, legacy := range []string{"ReadSavingsPlans", "ReadReservations"} {
+		if _, exists := reflect.TypeOf(reader).MethodByName(legacy); exists {
+			t.Errorf("CommitmentReader still exposes legacy method %s", legacy)
+		}
+	}
+	subject, err := commitmentcollector.New("payer", reader, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := subject.Collect(context.Background(), time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := result.Commitments()
+	if len(values) != 2 || values[0].Type != commitment.TypeReservation || values[1].Type != commitment.TypeSavingsPlan || !values[0].HasUtilization || !values[0].HasCoverage || !values[1].HasUtilization || !values[1].HasCoverage {
+		t.Fatalf("commitments=%#v", values)
 	}
 }
 
@@ -50,9 +85,13 @@ func TestCommitmentReaderPaginatesReservationsAndAttributesTelemetry(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := reader.ReadReservations(context.Background(), time.Now())
-	if err != nil || !result.HasUtilization || !result.HasCoverage {
-		t.Fatalf("result=%#v err=%v", result, err)
+	utilization, err := reader.ReadReservationUtilization(context.Background(), time.Now())
+	if err != nil || !utilization.HasUtilization {
+		t.Fatalf("utilization=%#v err=%v", utilization, err)
+	}
+	coverage, err := reader.ReadReservationCoverage(context.Background(), time.Now())
+	if err != nil || !coverage.HasCoverage {
+		t.Fatalf("coverage=%#v err=%v", coverage, err)
 	}
 	if api.utilizationCalls != 2 || api.coverageCalls != 2 {
 		t.Fatalf("calls utilization=%d coverage=%d", api.utilizationCalls, api.coverageCalls)
@@ -64,8 +103,11 @@ func TestCommitmentReaderPaginatesReservationsAndAttributesTelemetry(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := limited.ReadReservations(context.Background(), time.Now()); err == nil {
-		t.Fatal("accepted reservation pagination beyond limit")
+	if _, err := limited.ReadReservationUtilization(context.Background(), time.Now()); err == nil {
+		t.Fatal("accepted reservation utilization pagination beyond limit")
+	}
+	if _, err := limited.ReadReservationCoverage(context.Background(), time.Now()); err == nil {
+		t.Fatal("accepted reservation coverage pagination beyond limit")
 	}
 }
 
@@ -116,7 +158,7 @@ func TestAnomalyReaderAggregatesWithoutIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := reader.Read(context.Background(), time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
+	result, err := reader.ReadAnomalySummary(context.Background(), time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}

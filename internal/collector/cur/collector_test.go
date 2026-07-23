@@ -28,7 +28,7 @@ func TestCollectorPublishesCURAndRejectsUnsafeTags(t *testing.T) {
 	money, _ := cost.NewMoney(1, "USD")
 	dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
 	reader := stubReader{costs: []cost.Cost{{Target: "payer", Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, Dimension: dimension, Amount: money}}, tags: []tagcost.Cost{{Target: "payer", Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, TagKey: "Environment", TagValue: "prod", Amount: money}}}
-	subject, err := New("payer", reader, []cost.Basis{cost.BasisNet}, true, 10, 5, []config.TagKeyConfig{{Key: "Environment", MaxValues: 2}}, "__other__")
+	subject, err := New("payer", reader, []cost.Basis{cost.BasisNet}, true, 10, 5, 1, []config.TagKeyConfig{{Key: "Environment", MaxValues: 2}}, "__other__")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,16 +37,42 @@ func TestCollectorPublishesCURAndRejectsUnsafeTags(t *testing.T) {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
 	reader.tags[0].TagKey = "Secret"
-	unsafe, _ := New("payer", reader, []cost.Basis{cost.BasisNet}, true, 10, 5, []config.TagKeyConfig{{Key: "Environment", MaxValues: 2}}, "__other__")
+	unsafe, _ := New("payer", reader, []cost.Basis{cost.BasisNet}, true, 10, 5, 1, []config.TagKeyConfig{{Key: "Environment", MaxValues: 2}}, "__other__")
 	if _, err := unsafe.Collect(context.Background(), time.Now()); err == nil {
 		t.Fatal("accepted non-allowlisted tag")
 	}
 	reader.costErr = errors.New("failed")
-	failed, _ := New("payer", reader, nil, false, 10, 5, nil, "__other__")
+	failed, _ := New("payer", reader, nil, false, 10, 5, 1, nil, "__other__")
 	if _, err := failed.Collect(context.Background(), time.Now()); err == nil {
 		t.Fatal("ignored cost error")
 	}
-	if value, err := New("payer", nil, nil, false, 0, 0, nil, ""); value != nil || err == nil {
+	if value, err := New("payer", nil, nil, false, 0, 0, 0, nil, ""); value != nil || err == nil {
 		t.Fatal("accepted invalid config")
+	}
+}
+
+func TestCollectorRejectsCurrenciesBeyondConfiguredLimit(t *testing.T) {
+	usd, _ := cost.NewMoney(1, "USD")
+	eur, _ := cost.NewMoney(1, "EUR")
+	dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
+	reader := stubReader{
+		costs: []cost.Cost{{Target: "payer", Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, Dimension: dimension, Amount: usd}},
+		tags:  []tagcost.Cost{{Target: "payer", Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, TagKey: "Environment", TagValue: "prod", Amount: eur}},
+	}
+
+	subject, err := New("payer", reader, []cost.Basis{cost.BasisNet}, true, 10, 5, 1, []config.TagKeyConfig{{Key: "Environment", MaxValues: 2}}, "__other__")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subject.Collect(context.Background(), time.Now()); err == nil || err.Error() != "CUR currency limit exceeded" {
+		t.Fatalf("Collect() error=%v", err)
+	}
+
+	allowed, err := New("payer", reader, []cost.Basis{cost.BasisNet}, true, 10, 5, 2, []config.TagKeyConfig{{Key: "Environment", MaxValues: 2}}, "__other__")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := allowed.Collect(context.Background(), time.Now()); err != nil {
+		t.Fatalf("Collect() with two currencies: %v", err)
 	}
 }

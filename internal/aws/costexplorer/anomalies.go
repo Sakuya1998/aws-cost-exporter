@@ -41,7 +41,7 @@ func NewAnomalyReader(target identity.TargetID, api AnomalyAPI, maxPages int, ob
 	return &AnomalyReader{target: target, api: api, maxPages: maxPages, observer: observer, retryer: retryer}, nil
 }
 
-func (reader *AnomalyReader) Read(ctx context.Context, reference time.Time) (anomaly.Summary, error) {
+func (reader *AnomalyReader) ReadAnomalySummary(ctx context.Context, reference time.Time) (anomaly.Summary, error) {
 	start := reference.UTC().AddDate(0, 0, -90).Format(time.DateOnly)
 	end := reference.UTC().Format(time.DateOnly)
 	input := &awscostexplorer.GetAnomaliesInput{DateInterval: &cetypes.AnomalyDateInterval{StartDate: aws.String(start), EndDate: aws.String(end)}, MaxResults: aws.Int32(100)}
@@ -96,10 +96,6 @@ func (reader *AnomalyReader) Read(ctx context.Context, reference time.Time) (ano
 		}
 	}
 	return result, nil
-}
-
-func (reader *AnomalyReader) ReadAnomalySummary(ctx context.Context, reference time.Time) (anomaly.Summary, error) {
-	return reader.Read(ctx, reference)
 }
 
 func anomalyEndIsActive(item cetypes.Anomaly, reference time.Time) bool {

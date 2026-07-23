@@ -31,8 +31,11 @@ func TestV03SnapshotTraversalValidationAndSeriesCount(t *testing.T) {
 		t.Fatal("accepted target contamination")
 	}
 	invalidIdentity := NewWithData([]cost.Cost{{Target: target, Window: cost.WindowDaily, Dimension: dimension, Amount: money}}, nil, nil, nil, nil, nil, nil)
-	if invalidIdentity.ValidatePartial(target) == nil || invalidIdentity.ValidateUnique() == nil {
-		t.Fatal("accepted missing provider or cost basis")
+	if err := invalidIdentity.ValidatePartial(target); err == nil || err.Error() != "invalid aggregate snapshot: target, provider, or cost basis mismatch" {
+		t.Fatalf("ValidatePartial()=%v", err)
+	}
+	if err := invalidIdentity.ValidateUnique(); err == nil || err.Error() != "invalid aggregate snapshot: invalid provider or cost basis" {
+		t.Fatalf("ValidateUnique()=%v", err)
 	}
 	duplicate := NewWithData([]cost.Cost{{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: dimension, Amount: money}, {Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: dimension, Amount: money}}, nil, nil, nil, nil, nil, nil)
 	if duplicate.ValidateUnique() == nil {

@@ -14,10 +14,22 @@
       "Resource": "*"
     },
     {
-      "Sid": "ReadCURAndQueryResults",
+      "Sid": "AccessCURBuckets",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:GetBucketLocation"],
-      "Resource": ["arn:aws:s3:::example-cur-bucket/*", "arn:aws:s3:::example-athena-results/aws-cost-exporter/*"]
+      "Action": ["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"],
+      "Resource": ["arn:aws:s3:::example-cur-bucket", "arn:aws:s3:::example-athena-results"]
+    },
+    {
+      "Sid": "ReadCURObjects",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::example-cur-bucket/cur-prefix/*"
+    },
+    {
+      "Sid": "AccessAthenaResults",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+      "Resource": "arn:aws:s3:::example-athena-results/aws-cost-exporter/*"
     }
   ]
 }
