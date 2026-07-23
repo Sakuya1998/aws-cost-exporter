@@ -36,7 +36,7 @@ Organizations account metadata is limited to the explicit allowlist or observed 
 
 Commitment and anomaly collectors require the Cost Explorer permissions in `examples/iam/commitments-anomalies-readonly.json`. They expose bounded account-level summaries and never publish plan IDs, anomaly IDs, root causes, or raw AWS messages.
 
-For CUR failures, verify the configured database, table, workgroup, result S3 location, and tag column mappings. The exporter does not create tables or accept arbitrary SQL. Athena `FAILED`, `CANCELLED`, timed-out, malformed, duplicate, or over-limit results are rejected atomically. Inspect request metrics for `StartQueryExecution`, `GetQueryExecution`, and `GetQueryResults`.
+For CUR failures, verify the configured database, table, workgroup, result S3 location, unique tag column mappings, and `athena:StopQueryExecution` permission. The exporter does not create tables or accept arbitrary SQL. Athena `FAILED`, `CANCELLED`, timed-out, malformed, duplicate-token, or over-limit results are rejected atomically. Timeout or caller cancellation while Athena is still running triggers a best-effort stop. Inspect request metrics for `StartQueryExecution`, `GetQueryExecution`, `GetQueryResults`, and `StopQueryExecution`.
 
 ## Shutdown, replicas, and debug
 

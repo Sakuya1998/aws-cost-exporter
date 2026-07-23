@@ -12,18 +12,14 @@ import (
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/identity"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/snapshot"
 	"github.com/sakuya1998/aws-cost-exporter/internal/domain/tagcost"
+	"github.com/sakuya1998/aws-cost-exporter/internal/ports"
 )
-
-type Reader interface {
-	ReadCosts(context.Context, time.Time, []cost.Basis) ([]cost.Cost, error)
-	ReadTagCosts(context.Context, time.Time, []cost.Basis) ([]tagcost.Cost, error)
-}
 
 const Name = "cur"
 
 type Collector struct {
 	target         identity.TargetID
-	reader         Reader
+	reader         ports.CURReader
 	bases          []cost.Basis
 	tags           bool
 	seriesLimit    int
@@ -33,9 +29,12 @@ type Collector struct {
 	observers      []basecollector.OverflowObserver
 }
 
-func New(target identity.TargetID, reader Reader, bases []cost.Basis, tags bool, seriesLimit, tagSeriesLimit int, keys []config.TagKeyConfig, overflow string, observers ...basecollector.OverflowObserver) (*Collector, error) {
-	if reader == nil || seriesLimit <= 0 || tagSeriesLimit <= 0 {
+func New(target identity.TargetID, reader ports.CURReader, bases []cost.Basis, tags bool, seriesLimit, tagSeriesLimit int, keys []config.TagKeyConfig, overflow string, observers ...basecollector.OverflowObserver) (*Collector, error) {
+	if reader == nil {
 		return nil, fmt.Errorf("CUR reader must not be nil")
+	}
+	if seriesLimit <= 0 || tagSeriesLimit <= 0 {
+		return nil, fmt.Errorf("CUR series limits must be positive")
 	}
 	return &Collector{target: target, reader: reader, bases: append([]cost.Basis(nil), bases...), tags: tags, seriesLimit: seriesLimit, tagSeriesLimit: tagSeriesLimit, keys: append([]config.TagKeyConfig(nil), keys...), overflow: overflow, observers: append([]basecollector.OverflowObserver(nil), observers...)}, nil
 }
@@ -43,13 +42,13 @@ func (collector *Collector) ID() identity.CollectorID {
 	return identity.CollectorID{Target: collector.target, Name: Name}
 }
 func (collector *Collector) Collect(ctx context.Context, reference time.Time) (snapshot.PartialSnapshot, error) {
-	costs, err := collector.reader.ReadCosts(ctx, reference, collector.bases)
+	costs, err := collector.reader.QueryCosts(ctx, reference, collector.bases)
 	if err != nil {
 		return snapshot.PartialSnapshot{}, err
 	}
 	var tags []tagcost.Cost
 	if collector.tags {
-		tags, err = collector.reader.ReadTagCosts(ctx, reference, collector.bases)
+		tags, err = collector.reader.QueryTagCosts(ctx, reference, collector.bases)
 		if err != nil {
 			return snapshot.PartialSnapshot{}, err
 		}

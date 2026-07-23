@@ -19,6 +19,8 @@ const (
 	maxBudgetSeries   = 500
 	maxTagKeys        = 20
 	maxTagValues      = 500
+	maxServerInFlight = 1000
+	maxConcurrency    = 100
 )
 
 var (
@@ -41,7 +43,7 @@ func ValidateServer(value ServerConfig) error {
 		{strings.TrimSpace(value.ListenAddress) == "", "server.listen_address", "must not be empty"},
 		{!strings.HasPrefix(value.MetricsPath, "/"), "server.metrics_path", "must start with /"},
 		{reservedMetricsPath(value), "server.metrics_path", "conflicts with a reserved HTTP route"},
-		{value.MaxInFlight <= 0, "server.max_in_flight", "must be positive"},
+		{value.MaxInFlight <= 0 || value.MaxInFlight > maxServerInFlight, "server.max_in_flight", "must be between 1 and 1000"},
 		{value.ReadHeaderTimeout <= 0, "server.read_header_timeout", "must be positive"},
 		{value.ReadTimeout <= 0, "server.read_timeout", "must be positive"},
 		{value.WriteTimeout <= 0, "server.write_timeout", "must be positive"},
@@ -94,7 +96,7 @@ func validateBase(value Config) error {
 		{value.Collection.RefreshInterval <= value.AWS.RequestTimeout, "collection.refresh_interval", "must exceed aws.request_timeout"},
 		{nonFinite(value.Collection.JitterRatio), "collection.jitter_ratio", "must be finite"},
 		{value.Collection.JitterRatio < 0 || value.Collection.JitterRatio > 0.5, "collection.jitter_ratio", "must be between 0 and 0.5"},
-		{value.Collection.MaxConcurrency <= 0, "collection.max_concurrency", "must be positive"},
+		{value.Collection.MaxConcurrency <= 0 || value.Collection.MaxConcurrency > maxConcurrency, "collection.max_concurrency", "must be between 1 and 100"},
 		{value.Collection.FailureBackoff.MaxAttempts <= 0 || value.Collection.FailureBackoff.MaxAttempts > maxRetryAttempts, "collection.failure_backoff.max_attempts", "must be between 1 and 10"},
 		{value.Collection.FailureBackoff.Initial <= 0, "collection.failure_backoff.initial", "must be positive"},
 		{value.Collection.FailureBackoff.Max < value.Collection.FailureBackoff.Initial, "collection.failure_backoff.max", "must not be less than initial"},
@@ -188,12 +190,6 @@ func validateTargets(value Config) error {
 		if err := validateBudgets(path, target, value.Collection.Budgets.SeriesLimit); err != nil {
 			return err
 		}
-		if err := validateCommitments(path, target); err != nil {
-			return err
-		}
-		if err := validateAnomalies(path, target); err != nil {
-			return err
-		}
 		if err := validateCUR(path, target); err != nil {
 			return err
 		}
@@ -211,20 +207,6 @@ func validateTargets(value Config) error {
 	}
 	if requiredCostTargets == 0 {
 		return fmt.Errorf("targets: at least one required Cost Explorer target is required")
-	}
-	return nil
-}
-
-func validateCommitments(path string, target TargetConfig) error {
-	if !target.Commitments.Enabled {
-		return nil
-	}
-	return nil
-}
-
-func validateAnomalies(path string, target TargetConfig) error {
-	if !target.Anomalies.Enabled {
-		return nil
 	}
 	return nil
 }
@@ -270,6 +252,7 @@ func validateCUR(path string, target TargetConfig) error {
 		return fmt.Errorf("%s.cur.tag_columns: must contain at most %d entries", path, maxTagKeys)
 	}
 	seen := map[string]struct{}{}
+	seenColumns := map[string]struct{}{}
 	for index, column := range target.CUR.TagColumns {
 		if column.Key == "" || column.Key != strings.TrimSpace(column.Key) {
 			return fmt.Errorf("%s.cur.tag_columns[%d].key: invalid", path, index)
@@ -280,7 +263,11 @@ func validateCUR(path string, target TargetConfig) error {
 		if _, exists := seen[column.Key]; exists {
 			return fmt.Errorf("%s.cur.tag_columns[%d].key: must be unique", path, index)
 		}
+		if _, exists := seenColumns[column.Column]; exists {
+			return fmt.Errorf("%s.cur.tag_columns[%d].column: must be unique", path, index)
+		}
 		seen[column.Key] = struct{}{}
+		seenColumns[column.Column] = struct{}{}
 	}
 	return nil
 }
@@ -300,6 +287,7 @@ func validateTags(path string, target TargetConfig, seriesLimit, basisCount int)
 	for _, item := range target.CUR.TagColumns {
 		columns[item.Key] = struct{}{}
 	}
+	worstCaseValues := 0
 	for index, key := range target.Tags.Keys {
 		if key.Key == "" || key.Key != strings.TrimSpace(key.Key) {
 			return fmt.Errorf("%s.tags.keys[%d].key: invalid", path, index)
@@ -311,6 +299,7 @@ func validateTags(path string, target TargetConfig, seriesLimit, basisCount int)
 			return fmt.Errorf("%s.tags.keys[%d].key: must be unique", path, index)
 		}
 		seen[key.Key] = struct{}{}
+		worstCaseValues += key.MaxValues
 		if target.CUR.Enabled {
 			if _, exists := columns[key.Key]; !exists {
 				return fmt.Errorf("%s.tags.keys[%d].key: requires a matching cur.tag_columns entry", path, index)
@@ -320,7 +309,7 @@ func validateTags(path string, target TargetConfig, seriesLimit, basisCount int)
 	if target.CUR.Enabled && len(columns) != len(seen) {
 		return fmt.Errorf("%s.cur.tag_columns: must exactly match tags.keys", path)
 	}
-	if len(target.Tags.Keys)*2*max(1, basisCount) > seriesLimit {
+	if worstCaseValues*2*max(1, basisCount) > seriesLimit {
 		return fmt.Errorf("%s.tags.keys: exceeds collection.tags.series_limit", path)
 	}
 	return nil

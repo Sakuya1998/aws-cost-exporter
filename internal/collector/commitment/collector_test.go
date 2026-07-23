@@ -14,15 +14,21 @@ type stubReader struct {
 	savingsErr, reservationsErr error
 }
 
-func (reader stubReader) ReadSavingsPlans(context.Context, time.Time) (domain.Summary, error) {
+func (reader stubReader) ReadSavingsPlansUtilization(context.Context, time.Time) (domain.Summary, error) {
 	return reader.savings, reader.savingsErr
 }
-func (reader stubReader) ReadReservations(context.Context, time.Time) (domain.Summary, error) {
+func (reader stubReader) ReadSavingsPlansCoverage(context.Context, time.Time) (domain.Summary, error) {
+	return reader.savings, reader.savingsErr
+}
+func (reader stubReader) ReadReservationUtilization(context.Context, time.Time) (domain.Summary, error) {
+	return reader.reservations, reader.reservationsErr
+}
+func (reader stubReader) ReadReservationCoverage(context.Context, time.Time) (domain.Summary, error) {
 	return reader.reservations, reader.reservationsErr
 }
 
 func TestCollectorPublishesBothSummariesAndPreservesErrors(t *testing.T) {
-	reader := stubReader{savings: domain.Summary{Target: "payer", Type: domain.TypeSavingsPlan, HasUtilization: true}, reservations: domain.Summary{Target: "payer", Type: domain.TypeReservation, HasCoverage: true}}
+	reader := stubReader{savings: domain.Summary{Target: "payer", Type: domain.TypeSavingsPlan, TimeUnit: "MONTHLY", HasUtilization: true}, reservations: domain.Summary{Target: "payer", Type: domain.TypeReservation, TimeUnit: "MONTHLY", HasCoverage: true}}
 	subject, err := New("payer", reader, 20)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +47,7 @@ func TestCollectorPublishesBothSummariesAndPreservesErrors(t *testing.T) {
 	if _, err := failed.Collect(context.Background(), time.Now()); err == nil {
 		t.Fatal("ignored reservation error")
 	}
-	limited, _ := New("payer", stubReader{savings: domain.Summary{Target: "payer", Type: domain.TypeSavingsPlan, HasUtilization: true}, reservations: domain.Summary{Target: "payer", Type: domain.TypeReservation, HasCoverage: true}}, 1)
+	limited, _ := New("payer", stubReader{savings: domain.Summary{Target: "payer", Type: domain.TypeSavingsPlan, TimeUnit: "MONTHLY", HasUtilization: true}, reservations: domain.Summary{Target: "payer", Type: domain.TypeReservation, TimeUnit: "MONTHLY", HasCoverage: true}}, 1)
 	if _, err := limited.Collect(context.Background(), time.Now()); err == nil {
 		t.Fatal("accepted over-limit summaries")
 	}

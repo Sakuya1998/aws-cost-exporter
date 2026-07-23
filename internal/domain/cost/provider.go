@@ -32,21 +32,3 @@ const (
 func (value Basis) Valid() bool {
 	return value == BasisUnblended || value == BasisAmortized || value == BasisNet
 }
-
-// NormalizeProvider returns the v0.3 default for values created by legacy
-// internal constructors. New providers should always set it explicitly.
-func NormalizeProvider(value Provider) Provider {
-	if value.Valid() {
-		return value
-	}
-	return ProviderCostExplorer
-}
-
-// NormalizeBasis returns the v0.3 default for values created by legacy
-// internal constructors. New providers should always set it explicitly.
-func NormalizeBasis(value Basis) Basis {
-	if value.Valid() {
-		return value
-	}
-	return BasisUnblended
-}

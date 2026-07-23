@@ -44,18 +44,6 @@ func NewWithData(costs []cost.Cost, forecasts []cost.Forecast, budgets []budget.
 		budgets: append([]budget.Budget(nil), budgets...), accounts: append([]organization.Account(nil), accounts...),
 		commitments: append([]commitment.Summary(nil), commitments...), anomalies: append([]anomaly.Summary(nil), anomalies...), tagCosts: append([]tagcost.Cost(nil), tags...),
 	}
-	for index := range result.costs {
-		result.costs[index].Provider = cost.NormalizeProvider(result.costs[index].Provider)
-		result.costs[index].Basis = cost.NormalizeBasis(result.costs[index].Basis)
-	}
-	for index := range result.forecasts {
-		result.forecasts[index].Provider = cost.NormalizeProvider(result.forecasts[index].Provider)
-		result.forecasts[index].Basis = cost.NormalizeBasis(result.forecasts[index].Basis)
-	}
-	for index := range result.tagCosts {
-		result.tagCosts[index].Provider = cost.NormalizeProvider(result.tagCosts[index].Provider)
-		result.tagCosts[index].Basis = cost.NormalizeBasis(result.tagCosts[index].Basis)
-	}
 	sort.SliceStable(result.costs, func(left, right int) bool {
 		if result.costs[left].Target != result.costs[right].Target {
 			return result.costs[left].Target < result.costs[right].Target
@@ -239,15 +227,21 @@ func (value Snapshot) SeriesCount() int {
 // ValidatePartial ensures one collector cannot publish records for another target.
 func (value Snapshot) ValidatePartial(target identity.TargetID) error {
 	valid := true
-	value.ForEachCost(func(item cost.Cost) { valid = valid && item.Target == target })
-	value.ForEachForecast(func(item cost.Forecast) { valid = valid && item.Target == target })
+	value.ForEachCost(func(item cost.Cost) {
+		valid = valid && item.Target == target && item.Provider.Valid() && item.Basis.Valid()
+	})
+	value.ForEachForecast(func(item cost.Forecast) {
+		valid = valid && item.Target == target && item.Provider.Valid() && item.Basis.Valid()
+	})
 	value.ForEachBudget(func(item budget.Budget) { valid = valid && item.Target == target })
 	value.ForEachAccount(func(item organization.Account) { valid = valid && item.Target == target })
 	value.ForEachCommitment(func(item commitment.Summary) { valid = valid && item.Target == target })
 	value.ForEachAnomaly(func(item anomaly.Summary) { valid = valid && item.Target == target })
-	value.ForEachTagCost(func(item tagcost.Cost) { valid = valid && item.Target == target })
+	value.ForEachTagCost(func(item tagcost.Cost) {
+		valid = valid && item.Target == target && item.Provider.Valid() && item.Basis.Valid()
+	})
 	if !valid {
-		return fmt.Errorf("%w: target mismatch", ErrInvalidSnapshot)
+		return fmt.Errorf("%w: target, provider, or cost basis mismatch", ErrInvalidSnapshot)
 	}
 	return nil
 }
@@ -264,9 +258,11 @@ func (value Snapshot) ValidateUnique() error {
 	}
 	valid := true
 	value.ForEachCost(func(item cost.Cost) {
+		valid = valid && item.Provider.Valid() && item.Basis.Valid()
 		valid = valid && add(fmt.Sprintf("cost|%s|%s|%s|%s|%s|%s|%s", item.Target, item.Provider, item.Basis, item.Window, item.Dimension.Kind(), item.Dimension.Value(), item.Amount.Currency()))
 	})
 	value.ForEachForecast(func(item cost.Forecast) {
+		valid = valid && item.Provider.Valid() && item.Basis.Valid()
 		valid = valid && add(fmt.Sprintf("forecast|%s|%s|%s|%s", item.Target, item.Provider, item.Basis, item.Mean.Currency()))
 	})
 	value.ForEachBudget(func(item budget.Budget) {
@@ -283,6 +279,7 @@ func (value Snapshot) ValidateUnique() error {
 		valid = valid && add(fmt.Sprintf("account|%s|%s|%s|%s", item.Target, item.AccountID, item.Name, item.Status))
 	})
 	value.ForEachTagCost(func(item tagcost.Cost) {
+		valid = valid && item.Provider.Valid() && item.Basis.Valid()
 		valid = valid && add(fmt.Sprintf("tag|%s|%s|%s|%s|%s|%s|%s", item.Target, item.Provider, item.Basis, item.Window, item.TagKey, item.TagValue, item.Amount.Currency()))
 	})
 	value.ForEachCommitment(func(item commitment.Summary) {

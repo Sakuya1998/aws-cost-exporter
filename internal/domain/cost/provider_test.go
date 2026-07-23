@@ -17,10 +17,7 @@ func TestProviderAndBasisAreBounded(t *testing.T) {
 			t.Fatalf("invalid basis %s", value)
 		}
 	}
-	if cost.Provider("other").Valid() || cost.Basis("other").Valid() {
+	if cost.Provider("other").Valid() || cost.Basis("other").Valid() || cost.Provider("").Valid() || cost.Basis("").Valid() {
 		t.Fatal("accepted unknown enum")
-	}
-	if cost.NormalizeProvider("") != cost.ProviderCostExplorer || cost.NormalizeBasis("") != cost.BasisUnblended {
-		t.Fatal("unexpected defaults")
 	}
 }

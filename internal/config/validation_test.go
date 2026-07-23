@@ -76,12 +76,14 @@ func TestValidateEnforcesCoreInvariants(t *testing.T) {
 			v.Targets[0].Budgets.Names = []string{"Monthly"}
 		}},
 		{"metrics path", "server.metrics_path", func(v *config.Config) { v.Server.MetricsPath = "/ready" }},
+		{"server max in flight", "server.max_in_flight", func(v *config.Config) { v.Server.MaxInFlight = 1001 }},
 		{"global rate finite", "aws.rate_limit.global_requests_per_second", func(v *config.Config) { v.AWS.RateLimit.GlobalRequestsPerSecond = math.NaN() }},
 		{"target rate finite", "aws.rate_limit.target_requests_per_second", func(v *config.Config) { v.AWS.RateLimit.TargetRequestsPerSecond = math.Inf(1) }},
 		{"global burst", "aws.rate_limit.global_burst", func(v *config.Config) { v.AWS.RateLimit.GlobalBurst = 6 }},
 		{"retry attempts", "aws.retry.max_attempts", func(v *config.Config) { v.AWS.Retry.MaxAttempts = 11 }},
 		{"refresh", "collection.refresh_interval", func(v *config.Config) { v.Collection.RefreshInterval = v.AWS.RequestTimeout }},
 		{"collector retry attempts", "collection.failure_backoff.max_attempts", func(v *config.Config) { v.Collection.FailureBackoff.MaxAttempts = 11 }},
+		{"collector concurrency", "collection.max_concurrency", func(v *config.Config) { v.Collection.MaxConcurrency = 101 }},
 		{"jitter", "collection.jitter_ratio", func(v *config.Config) { v.Collection.JitterRatio = math.NaN() }},
 		{"backoff", "collection.failure_backoff.multiplier", func(v *config.Config) { v.Collection.FailureBackoff.Multiplier = math.Inf(1) }},
 		{"overflow whitespace", "collection.cost_explorer.dimensions.overflow_label", func(v *config.Config) { v.Collection.CostExplorer.Dimensions.OverflowLabel = " __other__ " }},
@@ -166,8 +168,13 @@ func TestValidateV03CostBasesTagsAndCUR(t *testing.T) {
 		{"duplicate basis", "cost_bases", func(v *config.Config) { v.Collection.CostExplorer.CostBases = []string{"net", "net"} }},
 		{"invalid basis", "cost_bases", func(v *config.Config) { v.Collection.CostExplorer.CostBases = []string{"blended"} }},
 		{"unsafe CUR column", "tag_columns", func(v *config.Config) { v.Targets[0].CUR.TagColumns[0].Column = "tag; DROP TABLE cur2" }},
+		{"duplicate CUR column", "tag_columns[1].column", func(v *config.Config) {
+			v.Targets[0].Tags.Keys = append(v.Targets[0].Tags.Keys, config.TagKeyConfig{Key: "Team", MaxValues: 1})
+			v.Targets[0].CUR.TagColumns = append(v.Targets[0].CUR.TagColumns, config.CURTagColumn{Key: "Team", Column: v.Targets[0].CUR.TagColumns[0].Column})
+		}},
 		{"missing CUR tag mapping", "matching cur.tag_columns", func(v *config.Config) { v.Targets[0].CUR.TagColumns = nil }},
 		{"tag values", "max_values", func(v *config.Config) { v.Targets[0].Tags.Keys[0].MaxValues = 501 }},
+		{"tag series budget", "exceeds collection.tags.series_limit", func(v *config.Config) { v.Targets[0].Tags.Keys[0].MaxValues = 100 }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			current := value

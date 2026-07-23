@@ -14,6 +14,9 @@ import (
 )
 
 func mapTagUsage(results []cetypes.ResultByTime, query ports.CostQuery, metric, tagKey string) ([]tagcost.Cost, error) {
+	if !query.Basis.Valid() {
+		return nil, fmt.Errorf("%w: unsupported tag cost basis", ErrInvalidResponse)
+	}
 	values := make([]tagcost.Cost, 0)
 	for resultIndex, result := range results {
 		if _, err := mapPeriod(result.TimePeriod); err != nil {
@@ -35,7 +38,7 @@ func mapTagUsage(results []cetypes.ResultByTime, query ports.CostQuery, metric, 
 			if value == "" {
 				value = "__untagged__"
 			}
-			values = append(values, tagcost.Cost{Provider: cost.ProviderCostExplorer, Basis: cost.NormalizeBasis(query.Basis), Window: query.Window, TagKey: tagKey, TagValue: value, Amount: money})
+			values = append(values, tagcost.Cost{Provider: cost.ProviderCostExplorer, Basis: query.Basis, Window: query.Window, TagKey: tagKey, TagValue: value, Amount: money})
 			_ = groupIndex
 		}
 	}

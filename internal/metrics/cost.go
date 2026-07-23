@@ -124,7 +124,7 @@ func (collector *CostCollector) Collect(output chan<- prometheus.Metric) {
 		if description == nil {
 			return
 		}
-		labels := []string{string(item.Target), string(cost.NormalizeProvider(item.Provider)), string(cost.NormalizeBasis(item.Basis)), item.Amount.Currency()}
+		labels := []string{string(item.Target), string(item.Provider), string(item.Basis), item.Amount.Currency()}
 		if item.Dimension.Kind() != cost.DimensionTotal {
 			labels = append(labels, item.Dimension.Value())
 		}
@@ -133,7 +133,7 @@ func (collector *CostCollector) Collect(output chan<- prometheus.Metric) {
 	value.ForEachForecast(func(item cost.Forecast) {
 		amounts := [3]cost.Money{item.Mean, item.LowerBound, item.UpperBound}
 		for index, amount := range amounts {
-			output <- prometheus.MustNewConstMetric(collector.forecasts[index], prometheus.GaugeValue, amount.Amount(), string(item.Target), string(cost.NormalizeProvider(item.Provider)), string(cost.NormalizeBasis(item.Basis)), amount.Currency())
+			output <- prometheus.MustNewConstMetric(collector.forecasts[index], prometheus.GaugeValue, amount.Amount(), string(item.Target), string(item.Provider), string(item.Basis), amount.Currency())
 		}
 	})
 	value.ForEachAccount(func(item organization.Account) {
@@ -156,7 +156,7 @@ func (collector *CostCollector) Collect(output chan<- prometheus.Metric) {
 		if item.Window == cost.WindowMonthToDate {
 			index = 1
 		}
-		output <- prometheus.MustNewConstMetric(collector.tagCosts[index], prometheus.GaugeValue, item.Amount.Amount(), string(item.Target), string(cost.NormalizeProvider(item.Provider)), string(cost.NormalizeBasis(item.Basis)), item.Amount.Currency(), item.TagKey, item.TagValue)
+		output <- prometheus.MustNewConstMetric(collector.tagCosts[index], prometheus.GaugeValue, item.Amount.Amount(), string(item.Target), string(item.Provider), string(item.Basis), item.Amount.Currency(), item.TagKey, item.TagValue)
 	})
 	value.ForEachCommitment(func(item commitment.Summary) { collectCommitment(collector, output, item) })
 	value.ForEachAnomaly(func(item anomaly.Summary) {

@@ -148,12 +148,12 @@ func businessSnapshot(t *testing.T) snapshot.Snapshot {
 		if value.window == cost.WindowMonthToDate {
 			period = month
 		}
-		costs = append(costs, cost.Cost{Target: target, Window: value.window, Period: period, Dimension: dimension, Amount: money})
+		costs = append(costs, cost.Cost{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: value.window, Period: period, Dimension: dimension, Amount: money})
 	}
 	mean, _ := cost.NewMoney(100, "USD")
 	lower, _ := cost.NewMoney(90, "USD")
 	upper, _ := cost.NewMoney(110, "USD")
 	limit, _ := cost.NewMoney(100, "USD")
 	actual, _ := cost.NewMoney(45, "USD")
-	return snapshot.New(costs, []cost.Forecast{{Target: target, Period: month, Mean: mean, LowerBound: lower, UpperBound: upper}}, []budget.Budget{{Target: target, Name: "Monthly", Type: "COST", TimeUnit: "MONTHLY", Limit: limit, Actual: actual, HasActual: true}}, []organization.Account{{Target: target, AccountID: "123456789012", Name: "production", Status: "ACTIVE"}})
+	return snapshot.New(costs, []cost.Forecast{{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Period: month, Mean: mean, LowerBound: lower, UpperBound: upper}}, []budget.Budget{{Target: target, Name: "Monthly", Type: "COST", TimeUnit: "MONTHLY", Limit: limit, Actual: actual, HasActual: true}}, []organization.Account{{Target: target, AccountID: "123456789012", Name: "production", Status: "ACTIVE"}})
 }

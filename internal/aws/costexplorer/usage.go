@@ -95,7 +95,7 @@ func (adapter *UsageAdapter) ReadCosts(ctx context.Context, query ports.CostQuer
 }
 
 func metricForBasis(basis cost.Basis, fallback string) (string, error) {
-	switch cost.NormalizeBasis(basis) {
+	switch basis {
 	case cost.BasisUnblended:
 		return fallback, nil
 	case cost.BasisAmortized:

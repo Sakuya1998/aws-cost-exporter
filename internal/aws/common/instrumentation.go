@@ -31,6 +31,7 @@ const (
 	OperationStartQueryExecution        = "StartQueryExecution"
 	OperationGetQueryExecution          = "GetQueryExecution"
 	OperationGetQueryResults            = "GetQueryResults"
+	OperationStopQueryExecution         = "StopQueryExecution"
 )
 
 // Observer receives bounded target, operation, status, and retry labels.

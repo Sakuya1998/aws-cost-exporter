@@ -14,7 +14,7 @@ type stubReader struct {
 	err   error
 }
 
-func (reader stubReader) Read(context.Context, time.Time) (domain.Summary, error) {
+func (reader stubReader) ReadAnomalySummary(context.Context, time.Time) (domain.Summary, error) {
 	return reader.value, reader.err
 }
 

@@ -134,7 +134,13 @@ Budgets requires a non-empty exact-name allowlist and exports only `COST` budget
 
 CUR requires a pre-created CUR 2.0 table and Athena workgroup. The exporter generates fixed read-only queries and polls Athena asynchronously; arbitrary SQL is not accepted. Configure `cur.tag_columns` to map each allowlisted public tag key to one validated CUR column. Failed, canceled, timed-out, over-limit, or malformed queries retain the previous snapshot.
 
+CUR amortized cost uses AWS CUR 2.0 line-item semantics: covered usage uses Savings Plans or RI effective cost, Savings Plans recurring fees contribute unused commitment, RI fee rows contribute unused amortized upfront and recurring fees, and other rows use unblended cost. Net cost uses `line_item_net_unblended_cost` with unblended fallback for rows where AWS leaves the net column empty. These bases remain separate series and must not be added together.
+
 Important bounds:
+
+- `server.max_in_flight`: 1..1000; `collection.max_concurrency`: 1..100.
+- The per-target Tag worst case is `sum(keys[].max_values) * 2 windows * number of cost bases` and must not exceed `collection.tags.series_limit`.
+- `cur.tag_columns` keys and physical CUR column names must both be unique.
 
 - `targets` and credential sources: 1–20.
 - `aws.retry.max_attempts`: 1–10.
@@ -178,7 +184,7 @@ ce:GetCostAndUsage
 ce:GetCostForecast
 ```
 
-The exporter calls STS `GetCallerIdentity` for every final target identity; AWS does not normally require an explicit allow for that operation. Organizations targets additionally require `organizations:ListAccounts` and `organizations:DescribeOrganization`. Budgets targets require `budgets:ViewBudget`. Commitment and anomaly targets require the corresponding Cost Explorer read APIs. CUR targets require `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, Glue catalog reads, CUR table reads, and access to the configured Athena result S3 prefix. A source principal requires `sts:AssumeRole` only for each exact configured role ARN.
+The exporter calls STS `GetCallerIdentity` for every final target identity; AWS does not normally require an explicit allow for that operation. Organizations targets additionally require `organizations:ListAccounts` and `organizations:DescribeOrganization`. Budgets targets require `budgets:ViewBudget`. Commitment and anomaly targets require the corresponding Cost Explorer read APIs. CUR targets require `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, `athena:StopQueryExecution`, Glue catalog reads, CUR table reads, and access to the configured Athena result S3 prefix. A source principal requires `sts:AssumeRole` only for each exact configured role ARN.
 
 See [examples/iam](examples/iam). Static access key values are never configuration fields; only environment-variable names may be configured.
 
@@ -194,7 +200,7 @@ approximate Cost Explorer requests per refresh = T * (((8 + 2*K) * B * P) + fore
 
 SDK retries can produce additional billable HTTP attempts. `aws_cost_exporter_aws_api_requests_total` counts logical SDK operations, `aws_cost_exporter_pagination_pages_total` counts successfully read pages, and `aws_cost_exporter_aws_api_retries_total` counts authorized retry attempts. They are related but not interchangeable with the AWS invoice.
 
-Athena is billed by data scanned. The exporter submits fixed aggregate queries only on the configured CUR refresh interval, never during scrape. Partition the CUR table by billing period, use a dedicated workgroup with scan limits, and monitor Athena costs before reducing the default 24-hour interval.
+Athena is billed by data scanned. The exporter submits fixed aggregate queries only on the configured CUR refresh interval, never during scrape. `query_timeout` covers submission, polling, and result pagination; cancellation or timeout while a query is still running triggers a best-effort `StopQueryExecution`. Partition the CUR table by billing period, use a dedicated workgroup with scan limits, and monitor Athena costs before reducing the default 24-hour interval.
 
 Both initial attempts and SDK retries acquire the global limiter and then the target limiter. A scheduled collector run is additionally bounded by `collection.failure_backoff.max_attempts`; after that budget is exhausted it waits for the next normal interval. Collectors for one target run serially so a slow account cannot occupy every global collection slot. Tighten target filters, increase refresh intervals, or reduce `max_pages` before raising rate limits. `series_limit` bounds Prometheus cardinality but does not reduce Cost Explorer pages.
 

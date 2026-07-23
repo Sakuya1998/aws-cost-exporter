@@ -152,7 +152,7 @@ func mapCost(period cost.Period, window cost.Window, dimension cost.Dimension, m
 	if err != nil {
 		return cost.Cost{}, err
 	}
-	return cost.Cost{Provider: cost.ProviderCostExplorer, Basis: cost.NormalizeBasis(cost.Basis(metricBasis(costMetric))), Window: window, Period: period, Dimension: dimension, Amount: amount}, nil
+	return cost.Cost{Provider: cost.ProviderCostExplorer, Basis: cost.Basis(metricBasis(costMetric)), Window: window, Period: period, Dimension: dimension, Amount: amount}, nil
 }
 
 func metricBasis(metric string) string {

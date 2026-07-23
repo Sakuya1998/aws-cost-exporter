@@ -27,7 +27,7 @@ func TestUsageAdapterSerializesQueriesAndMapsCompletePages(t *testing.T) {
 		time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC),
 	)
 	query := ports.CostQuery{
-		Period: period, Window: cost.WindowMonthToDate, GroupBy: cost.DimensionService,
+		Period: period, Window: cost.WindowMonthToDate, Basis: cost.BasisUnblended, GroupBy: cost.DimensionService,
 		LinkedAccountIDs: []string{"123456789012"}, Services: []string{"Amazon EC2"},
 		Regions: []string{"us-east-1"},
 	}
@@ -59,7 +59,7 @@ func TestUsageAdapterAggregatesMTDAcrossDailyRows(t *testing.T) {
 		time.Date(2026, 7, 4, 0, 0, 0, 0, time.UTC),
 	)
 	query := ports.CostQuery{
-		Period: period, Window: cost.WindowMonthToDate, GroupBy: cost.DimensionService,
+		Period: period, Window: cost.WindowMonthToDate, Basis: cost.BasisUnblended, GroupBy: cost.DimensionService,
 	}
 	values, err := subject.ReadCosts(context.Background(), query)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestUsageAdapterReadsAllowlistedTagCostsAndBasisMetrics(t *testing.T) {
 	}
 	bad := &tagUsageAPI{malformed: true}
 	adapter, _ := NewUsageAdapterForTarget("payer", bad, 10, metricUnblendedCost, nil)
-	if _, err := adapter.ReadTagCosts(context.Background(), ports.CostQuery{Period: period, Window: cost.WindowDaily}, "Environment"); err == nil {
+	if _, err := adapter.ReadTagCosts(context.Background(), ports.CostQuery{Period: period, Window: cost.WindowDaily, Basis: cost.BasisUnblended}, "Environment"); err == nil {
 		t.Fatal("accepted malformed tag response")
 	}
 }
@@ -104,7 +104,7 @@ func TestUsageAdapterRejectsPartialFailuresAndInvalidQueries(t *testing.T) {
 	}
 	api := &usageAPI{err: &smithy.GenericAPIError{Code: "ThrottlingException", Message: "private"}}
 	subject, _ := NewUsageAdapter(api, 50, metricUnblendedCost, nil)
-	query := ports.CostQuery{Period: cost.DayContaining(time.Now()), GroupBy: cost.DimensionTotal}
+	query := ports.CostQuery{Period: cost.DayContaining(time.Now()), Basis: cost.BasisUnblended, GroupBy: cost.DimensionTotal}
 	values, err := subject.ReadCosts(context.Background(), query)
 	var classified *ClassifiedError
 	if values != nil || !errors.As(err, &classified) || !classified.Retryable() {

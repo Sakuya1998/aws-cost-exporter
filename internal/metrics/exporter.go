@@ -150,7 +150,7 @@ func (exporter *Exporter) isKnown(id identity.CollectorID) bool {
 	return exists
 }
 func boundedOperation(value string) string {
-	return bounded(value, "AssumeRole", "GetCallerIdentity", "GetCostAndUsage", "GetCostForecast", "ListAccounts", "DescribeOrganization", "DescribeBudgets", "GetSavingsPlansUtilization", "GetSavingsPlansCoverage", "GetReservationUtilization", "GetReservationCoverage", "GetAnomalies", "StartQueryExecution", "GetQueryExecution", "GetQueryResults")
+	return bounded(value, "AssumeRole", "GetCallerIdentity", "GetCostAndUsage", "GetCostForecast", "ListAccounts", "DescribeOrganization", "DescribeBudgets", "GetSavingsPlansUtilization", "GetSavingsPlansCoverage", "GetReservationUtilization", "GetReservationCoverage", "GetAnomalies", "StartQueryExecution", "GetQueryExecution", "GetQueryResults", "StopQueryExecution")
 }
 func bounded(value string, allowed ...string) string {
 	return boundedDefault(value, "unknown", allowed...)

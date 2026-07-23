@@ -8,7 +8,7 @@ server:
   write_timeout: 30s
   idle_timeout: 60s
   shutdown_timeout: 15s
-  max_in_flight: 20
+  max_in_flight: 20 # valid range: 1..1000
   debug:
     enabled: false
 
@@ -79,7 +79,7 @@ targets:
       enabled: false
       keys: []
       # - key: Environment
-      #   max_values: 50
+      #   max_values: 50 # included in the per-target Tag series budget
     cur:
       enabled: false
       database: ""
@@ -96,7 +96,7 @@ collection:
   refresh_interval: 6h
   startup_refresh: true
   jitter_ratio: 0.10
-  max_concurrency: 4
+  max_concurrency: 4 # valid range: 1..100
   failure_backoff:
     max_attempts: 3
     initial: 1m

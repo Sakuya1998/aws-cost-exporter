@@ -16,6 +16,8 @@ var (
 	ErrMixedCurrency = errors.New("dimension overflow contains mixed currencies")
 	// ErrReservedDimension prevents collisions with the overflow label.
 	ErrReservedDimension = errors.New("reserved dimension value")
+	// ErrInvalidCostIdentity rejects silent provider or cost-basis defaults.
+	ErrInvalidCostIdentity = errors.New("invalid cost provider or basis")
 )
 
 // OverflowObserver receives bounded dimension overflow counts.
@@ -35,10 +37,13 @@ func LimitDimensions(values []cost.Cost, limit int, other string, observers ...O
 	}
 	groups := make(map[string][]cost.Cost)
 	for _, value := range values {
+		if !value.Provider.Valid() || !value.Basis.Valid() {
+			return nil, ErrInvalidCostIdentity
+		}
 		if value.Dimension.Value() == other {
 			return nil, ErrReservedDimension
 		}
-		key := string(cost.NormalizeProvider(value.Provider)) + "\x00" + string(cost.NormalizeBasis(value.Basis))
+		key := string(value.Provider) + "\x00" + string(value.Basis)
 		groups[key] = append(groups[key], value)
 	}
 	if len(groups) > 1 {

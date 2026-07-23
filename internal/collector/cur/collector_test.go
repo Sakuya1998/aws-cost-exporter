@@ -17,10 +17,10 @@ type stubReader struct {
 	costErr, tagErr error
 }
 
-func (reader stubReader) ReadCosts(context.Context, time.Time, []cost.Basis) ([]cost.Cost, error) {
+func (reader stubReader) QueryCosts(context.Context, time.Time, []cost.Basis) ([]cost.Cost, error) {
 	return reader.costs, reader.costErr
 }
-func (reader stubReader) ReadTagCosts(context.Context, time.Time, []cost.Basis) ([]tagcost.Cost, error) {
+func (reader stubReader) QueryTagCosts(context.Context, time.Time, []cost.Basis) ([]tagcost.Cost, error) {
 	return reader.tags, reader.tagErr
 }
 

@@ -4,7 +4,7 @@
     {
       "Sid": "RunBoundedCURQueries",
       "Effect": "Allow",
-      "Action": ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults"],
+      "Action": ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:StopQueryExecution"],
       "Resource": "arn:aws:athena:us-east-1:444455556666:workgroup/aws-cost-exporter"
     },
     {

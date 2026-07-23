@@ -59,7 +59,7 @@ func (adapter *ForecastAdapter) ReadForecast(ctx context.Context, query ports.Fo
 }
 
 func forecastMetric(basis cost.Basis) (cetypes.Metric, error) {
-	switch cost.NormalizeBasis(basis) {
+	switch basis {
 	case cost.BasisUnblended:
 		return cetypes.MetricUnblendedCost, nil
 	case cost.BasisAmortized:
@@ -73,6 +73,9 @@ func forecastMetric(basis cost.Basis) (cetypes.Metric, error) {
 
 // MapForecast validates one AWS monthly forecast result.
 func MapForecast(output *awscostexplorer.GetCostForecastOutput, query ports.ForecastQuery) (cost.Forecast, error) {
+	if !query.Basis.Valid() {
+		return cost.Forecast{}, fmt.Errorf("%w: unsupported forecast cost basis", ErrInvalidResponse)
+	}
 	if output == nil || output.Total == nil || len(output.ForecastResultsByTime) != 1 {
 		return cost.Forecast{}, fmt.Errorf("%w: expected one forecast result", ErrInvalidResponse)
 	}
@@ -105,6 +108,6 @@ func MapForecast(output *awscostexplorer.GetCostForecastOutput, query ports.Fore
 		return cost.Forecast{}, fmt.Errorf("%w: prediction bounds are unordered", ErrInvalidResponse)
 	}
 	return cost.Forecast{
-		Provider: cost.ProviderCostExplorer, Basis: cost.NormalizeBasis(query.Basis), Period: query.Period, Mean: mean, LowerBound: lower, UpperBound: upper,
+		Provider: cost.ProviderCostExplorer, Basis: query.Basis, Period: query.Period, Mean: mean, LowerBound: lower, UpperBound: upper,
 	}, nil
 }

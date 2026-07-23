@@ -110,11 +110,11 @@ func (snapshot Snapshot) ForEachForecast(visit func(Forecast)) {
 
 // costLess defines deterministic ordering for metric generation.
 func costLess(left, right Cost) bool {
-	if NormalizeProvider(left.Provider) != NormalizeProvider(right.Provider) {
-		return NormalizeProvider(left.Provider) < NormalizeProvider(right.Provider)
+	if left.Provider != right.Provider {
+		return left.Provider < right.Provider
 	}
-	if NormalizeBasis(left.Basis) != NormalizeBasis(right.Basis) {
-		return NormalizeBasis(left.Basis) < NormalizeBasis(right.Basis)
+	if left.Basis != right.Basis {
+		return left.Basis < right.Basis
 	}
 	if left.Window != right.Window {
 		return left.Window < right.Window

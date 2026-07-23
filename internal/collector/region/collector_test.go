@@ -117,7 +117,7 @@ func (reader *recordingReader) ReadCosts(_ context.Context, query ports.CostQuer
 		money, _ := cost.NewMoney(value.amount, currency)
 		dimension, _ := cost.NewDimension(cost.DimensionRegion, value.name)
 		result = append(result, cost.Cost{
-			Window: query.Window, Period: query.Period, Dimension: dimension, Amount: money,
+			Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: query.Window, Period: query.Period, Dimension: dimension, Amount: money,
 		})
 	}
 	return result, nil

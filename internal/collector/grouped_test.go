@@ -34,9 +34,9 @@ func (reader *groupedReader) ReadCosts(_ context.Context, query ports.CostQuery)
 	s3, _ := cost.NewDimension(cost.DimensionService, "Amazon S3")
 	rds, _ := cost.NewDimension(cost.DimensionService, "Amazon RDS")
 	return []cost.Cost{
-		{Dimension: service, Amount: moneyForGroupedTest(5)},
-		{Dimension: s3, Amount: moneyForGroupedTest(3)},
-		{Dimension: rds, Amount: moneyForGroupedTest(2)},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Dimension: service, Amount: moneyForGroupedTest(5)},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Dimension: s3, Amount: moneyForGroupedTest(3)},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Dimension: rds, Amount: moneyForGroupedTest(2)},
 	}, nil
 }
 

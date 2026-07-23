@@ -137,6 +137,7 @@ func (factory *Factory) ForTarget(target appconfig.TargetConfig) (Clients, error
 		awscommon.OperationGetReservationUtilization, awscommon.OperationGetReservationCoverage,
 		awscommon.OperationGetAnomalies, awscommon.OperationStartQueryExecution,
 		awscommon.OperationGetQueryExecution, awscommon.OperationGetQueryResults,
+		awscommon.OperationStopQueryExecution,
 	} {
 		retryers[operation] = awscommon.WrapRetryer(base.Retryer(), targetID, operation, limiter, factory.observer)
 	}
