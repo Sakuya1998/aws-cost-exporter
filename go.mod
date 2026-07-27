@@ -6,6 +6,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.42.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.29
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.28
+	github.com/aws/aws-sdk-go-v2/service/athena v1.59.1
 	github.com/aws/aws-sdk-go-v2/service/budgets v1.45.1
 	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.66.0
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.52.1

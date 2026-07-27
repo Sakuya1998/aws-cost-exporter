@@ -2,7 +2,7 @@ groups:
   - name: aws-cost-exporter.recording
     rules:
       - record: aws_cost:month_to_date:sum_by_currency
-        expr: sum by (job, instance, target, currency) (aws_cost_month_to_date_amount)
+        expr: sum by (job, instance, target, provider, cost_basis, currency) (aws_cost_month_to_date_amount)
 
       - record: aws_cost_exporter:max_cache_age_seconds
         expr: max by (job, instance, target) (aws_cost_exporter_cache_age_seconds)
@@ -60,9 +60,9 @@ groups:
       # The forecast interval includes today, so subtract today's MTD component.
       # - alert: AWSMonthlyCostForecastAboveBudget
       #   expr: >-
-      #     aws_cost_month_to_date_amount{currency="USD"}
-      #     - aws_cost_daily_amount{currency="USD"}
-      #     + aws_cost_month_forecast_mean_amount{currency="USD"} > 10000
+      #     aws_cost_month_to_date_amount{provider="cost_explorer",cost_basis="unblended",currency="USD"}
+      #     - aws_cost_daily_amount{provider="cost_explorer",cost_basis="unblended",currency="USD"}
+      #     + aws_cost_month_forecast_mean_amount{provider="cost_explorer",cost_basis="unblended",currency="USD"} > 10000
       #   for: 1h
       #   labels:
       #     severity: warning

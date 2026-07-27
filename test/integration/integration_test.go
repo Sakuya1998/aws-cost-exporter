@@ -47,8 +47,8 @@ func TestPaginationPublishesEveryServicePage(t *testing.T) {
 	})
 	body := awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
 		return code == http.StatusOK &&
-			strings.Contains(body, "aws_cost_service_daily_amount{aws_service=\"AmazonEC2\",currency=\"USD\",target=\"integration\"} 1\n") &&
-			strings.Contains(body, "aws_cost_service_daily_amount{aws_service=\"AmazonS3\",currency=\"USD\",target=\"integration\"} 2\n")
+			strings.Contains(body, "aws_cost_service_daily_amount{aws_service=\"AmazonEC2\",cost_basis=\"unblended\",currency=\"USD\",provider=\"cost_explorer\",target=\"integration\"} 1\n") &&
+			strings.Contains(body, "aws_cost_service_daily_amount{aws_service=\"AmazonS3\",cost_basis=\"unblended\",currency=\"USD\",provider=\"cost_explorer\",target=\"integration\"} 2\n")
 	})
 	if calls.Load() != 4 || !strings.Contains(body, "aws_cost_service_month_to_date_amount") {
 		t.Fatalf("pagination calls=%d metrics=%s", calls.Load(), body)
@@ -73,7 +73,7 @@ func TestThrottleRetriesThenPublishes(t *testing.T) {
 	})
 	body := awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
 		return code == http.StatusOK &&
-			strings.Contains(body, "aws_cost_daily_amount{currency=\"USD\",target=\"integration\"} 7\n") &&
+			strings.Contains(body, "aws_cost_daily_amount{cost_basis=\"unblended\",currency=\"USD\",provider=\"cost_explorer\",target=\"integration\"} 7\n") &&
 			strings.Contains(body, "aws_cost_exporter_aws_api_retries_total{operation=\"GetCostAndUsage\",reason=\"throttle\",target=\"integration\"} 1\n")
 	})
 	if calls.Load() != 3 {
@@ -99,7 +99,7 @@ func TestGlobalFiltersInjectedIntoRequests(t *testing.T) {
 		value.Targets[0].CostExplorer.Filters.Regions = []string{"us-east-1"}
 	})
 	awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
-		return code == http.StatusOK && strings.Contains(body, "aws_cost_daily_amount{currency=\"USD\",target=\"integration\"} 3\n")
+		return code == http.StatusOK && strings.Contains(body, "aws_cost_daily_amount{cost_basis=\"unblended\",currency=\"USD\",provider=\"cost_explorer\",target=\"integration\"} 3\n")
 	})
 	got, _ := capturedBody.Load().(string)
 	if !strings.Contains(got, "Amazon EC2") || !strings.Contains(got, "us-east-1") {
@@ -125,7 +125,7 @@ func TestPartialCollectorFailureKeepsSuccessfulSnapshot(t *testing.T) {
 	})
 	body := awaitHTTP(t, baseURL+"/metrics", func(code int, body string) bool {
 		return code == http.StatusOK &&
-			strings.Contains(body, "aws_cost_daily_amount{currency=\"USD\",target=\"integration\"} 9\n") &&
+			strings.Contains(body, "aws_cost_daily_amount{cost_basis=\"unblended\",currency=\"USD\",provider=\"cost_explorer\",target=\"integration\"} 9\n") &&
 			strings.Contains(body, "aws_cost_exporter_collector_up{collector=\"service\",target=\"integration\"} 0\n") &&
 			strings.Contains(body, "aws_cost_exporter_collector_up{collector=\"total\",target=\"integration\"} 1\n") &&
 			strings.Contains(body, "aws_cost_exporter_refresh_total{collector=\"service\",status=\"error\",target=\"integration\"} 1\n")

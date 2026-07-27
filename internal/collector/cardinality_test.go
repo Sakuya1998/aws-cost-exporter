@@ -13,9 +13,9 @@ func TestLimitDimensionsPreservesTieBreakOrder(t *testing.T) {
 	ec2, _ := cost.NewDimension(cost.DimensionService, "Amazon EC2")
 	rds, _ := cost.NewDimension(cost.DimensionService, "Amazon RDS")
 	values := []cost.Cost{
-		{Window: cost.WindowDaily, Dimension: service, Amount: mustMoney(t, 10, "USD")},
-		{Window: cost.WindowDaily, Dimension: ec2, Amount: mustMoney(t, 10, "USD")},
-		{Window: cost.WindowDaily, Dimension: rds, Amount: mustMoney(t, 5, "USD")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: service, Amount: mustMoney(t, 10, "USD")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: ec2, Amount: mustMoney(t, 10, "USD")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: rds, Amount: mustMoney(t, 5, "USD")},
 	}
 	limited, err := basecollector.LimitDimensions(values, 2, "__other__")
 	if err != nil {
@@ -32,9 +32,9 @@ func TestLimitDimensionsAggregatesOverflow(t *testing.T) {
 	s3, _ := cost.NewDimension(cost.DimensionService, "Amazon S3")
 	rds, _ := cost.NewDimension(cost.DimensionService, "Amazon RDS")
 	values := []cost.Cost{
-		{Window: cost.WindowDaily, Dimension: ec2, Amount: mustMoney(t, 30, "USD")},
-		{Window: cost.WindowDaily, Dimension: s3, Amount: mustMoney(t, 20, "USD")},
-		{Window: cost.WindowDaily, Dimension: rds, Amount: mustMoney(t, 10, "USD")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: ec2, Amount: mustMoney(t, 30, "USD")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: s3, Amount: mustMoney(t, 20, "USD")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: rds, Amount: mustMoney(t, 10, "USD")},
 	}
 	limited, err := basecollector.LimitDimensions(values, 2, "__other__")
 	if err != nil {
@@ -56,19 +56,19 @@ func TestLimitDimensionsRejectsMixedCurrencyAndReservedValue(t *testing.T) {
 	service, _ := cost.NewDimension(cost.DimensionService, "Amazon EC2")
 	other, _ := cost.NewDimension(cost.DimensionService, "__other__")
 	values := []cost.Cost{
-		{Window: cost.WindowDaily, Dimension: service, Amount: mustMoney(t, 1, "USD")},
-		{Window: cost.WindowDaily, Dimension: service, Amount: mustMoney(t, 2, "EUR")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: service, Amount: mustMoney(t, 1, "USD")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: service, Amount: mustMoney(t, 2, "EUR")},
 	}
 	if _, err := basecollector.LimitDimensions(values, 1, "__other__"); !errors.Is(err, basecollector.ErrMixedCurrency) {
 		t.Fatalf("mixed currency error = %v", err)
 	}
 	if _, err := basecollector.LimitDimensions([]cost.Cost{
-		{Window: cost.WindowDaily, Dimension: other, Amount: mustMoney(t, 1, "USD")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: other, Amount: mustMoney(t, 1, "USD")},
 	}, 2, "__other__"); !errors.Is(err, basecollector.ErrReservedDimension) {
 		t.Fatalf("reserved dimension error = %v", err)
 	}
 	if _, err := basecollector.LimitDimensions([]cost.Cost{
-		{Window: cost.WindowDaily, Dimension: other, Amount: mustMoney(t, 1, "USD")},
+		{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: other, Amount: mustMoney(t, 1, "USD")},
 	}, 2, " __other__ "); !errors.Is(err, basecollector.ErrReservedDimension) {
 		t.Fatalf("normalized reserved dimension error = %v", err)
 	}
@@ -77,6 +77,9 @@ func TestLimitDimensionsRejectsMixedCurrencyAndReservedValue(t *testing.T) {
 	}
 	if _, err := basecollector.LimitDimensions(nil, 1, "   "); !errors.Is(err, basecollector.ErrInvalidOverflowLabel) {
 		t.Fatalf("invalid overflow label error = %v", err)
+	}
+	if _, err := basecollector.LimitDimensions([]cost.Cost{{}}, 1, "__other__"); !errors.Is(err, basecollector.ErrInvalidCostIdentity) {
+		t.Fatalf("invalid provider/basis error = %v", err)
 	}
 }
 

@@ -177,7 +177,7 @@ func accountCosts(count int, window cost.Window, period cost.Period) []cost.Cost
 	for index := range count {
 		amount, _ := cost.NewMoney(float64(index+1), "USD")
 		dimension, _ := cost.NewDimension(cost.DimensionAccount, fmt.Sprintf("%012d", index+1))
-		costs = append(costs, cost.Cost{Window: window, Period: period, Dimension: dimension, Amount: amount})
+		costs = append(costs, cost.Cost{Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: window, Period: period, Dimension: dimension, Amount: amount})
 	}
 	return costs
 }
@@ -209,7 +209,7 @@ func accountSeriesSnapshot(tb testing.TB, targets, perWindow int) snapshot.Snaps
 			}{{cost.WindowDaily, day}, {cost.WindowMonthToDate, mtd}} {
 				amount, _ := cost.NewMoney(float64(index+1), "USD")
 				dimension, _ := cost.NewDimension(cost.DimensionAccount, fmt.Sprintf("%012d", index+1))
-				costs = append(costs, cost.Cost{Target: target, Window: item.window, Period: item.period, Dimension: dimension, Amount: amount})
+				costs = append(costs, cost.Cost{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: item.window, Period: item.period, Dimension: dimension, Amount: amount})
 			}
 		}
 		for _, item := range []struct {
@@ -218,13 +218,13 @@ func accountSeriesSnapshot(tb testing.TB, targets, perWindow int) snapshot.Snaps
 		}{{cost.WindowDaily, day}, {cost.WindowMonthToDate, mtd}} {
 			amount, _ := cost.NewMoney(999, "USD")
 			dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
-			costs = append(costs, cost.Cost{Target: target, Window: item.window, Period: item.period, Dimension: dimension, Amount: amount})
+			costs = append(costs, cost.Cost{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: item.window, Period: item.period, Dimension: dimension, Amount: amount})
 		}
 		mean, _ := cost.NewMoney(500, "USD")
 		lower, _ := cost.NewMoney(400, "USD")
 		upper, _ := cost.NewMoney(600, "USD")
 		forecastPeriod, _ := cost.NewPeriod(day.End(), month.End())
-		forecasts = append(forecasts, cost.Forecast{Target: target, Period: forecastPeriod, Mean: mean, LowerBound: lower, UpperBound: upper})
+		forecasts = append(forecasts, cost.Forecast{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Period: forecastPeriod, Mean: mean, LowerBound: lower, UpperBound: upper})
 	}
 	return snapshot.New(costs, forecasts, nil, nil)
 }

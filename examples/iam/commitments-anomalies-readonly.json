@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "ReadCommitmentAndAnomalySummaries",
+    "Effect": "Allow",
+    "Action": [
+      "ce:GetSavingsPlansUtilization",
+      "ce:GetSavingsPlansCoverage",
+      "ce:GetReservationUtilization",
+      "ce:GetReservationCoverage",
+      "ce:GetAnomalies"
+    ],
+    "Resource": "*"
+  }]
+}

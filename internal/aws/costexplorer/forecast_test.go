@@ -47,7 +47,7 @@ func TestForecastAdapterReadsRealSDKEndpoint(t *testing.T) {
 	period, _ := cost.NewPeriod(time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
 	adapter, _ := NewForecastAdapter(client)
 	forecast, err := adapter.ReadForecast(context.Background(), ports.ForecastQuery{
-		Period: period, PredictionInterval: 80,
+		Period: period, Basis: cost.BasisUnblended, PredictionInterval: 80,
 		LinkedAccountIDs: []string{"123456789012"}, Services: []string{"AmazonEC2"},
 	})
 	if err != nil || forecast.Mean.Amount() != 100 ||
@@ -74,7 +74,7 @@ func TestMapForecastRejectsUnrelatedMonthlyBucket(t *testing.T) {
 			PredictionIntervalUpperBound: aws.String("120"),
 		}},
 	}
-	if forecast, err := MapForecast(output, ports.ForecastQuery{Period: period}); !errors.Is(err, ErrInvalidResponse) || forecast != (cost.Forecast{}) {
+	if forecast, err := MapForecast(output, ports.ForecastQuery{Period: period, Basis: cost.BasisUnblended}); !errors.Is(err, ErrInvalidResponse) || forecast != (cost.Forecast{}) {
 		t.Fatalf("MapForecast() = %#v, %v; want period mismatch", forecast, err)
 	}
 }
@@ -96,7 +96,7 @@ func TestMapForecastRejectsInvalidBounds(t *testing.T) {
 		}},
 	}
 	for _, invalid := range []*awscostexplorer.GetCostForecastOutput{nil, output} {
-		forecast, err := MapForecast(invalid, ports.ForecastQuery{Period: period})
+		forecast, err := MapForecast(invalid, ports.ForecastQuery{Period: period, Basis: cost.BasisUnblended})
 		if !errors.Is(err, ErrInvalidResponse) || forecast != (cost.Forecast{}) {
 			t.Fatalf("MapForecast() = %#v, %v; want empty forecast and ErrInvalidResponse", forecast, err)
 		}

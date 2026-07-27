@@ -32,7 +32,7 @@ requests and pushes to `master`.
 
 ## v0.2: Multi-account operation
 
-Status: in development on the v0.2 development branch.
+Status: completed in v0.2.1.
 
 Goal: operate safely across explicit AWS account boundaries.
 - Discover optional account metadata through AWS Organizations.
@@ -50,10 +50,12 @@ require wildcard `sts:AssumeRole` permissions.
 
 ## v0.3: Commitment and detailed billing data
 
+Status: implementation complete on `codex/v0.3-development`; pending PR and release acceptance.
+
 Goal: extend cost semantics while keeping metric contracts explicit.
 - Add Savings Plans and Reserved Instance utilization and coverage.
 - Add Cost Anomaly Detection signals.
-- Add optional amortized and net cost bases with compatibility-safe metrics.
+- Add optional amortized and net cost bases with explicit provider/basis labels.
 - Add a CUR 2.0 and Athena provider for billing-detail use cases.
 - Add allowlisted tag-cost metrics with enforced cardinality budgets.
 

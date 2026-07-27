@@ -3,20 +3,30 @@ package config
 import (
 	"fmt"
 	"math"
+	"net"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
-	maxTargets        = 20
-	maxRetryAttempts  = 10
-	maxRateLimitBurst = 5
-	maxRequestsPerSec = 10
-	maxPages          = 200
-	maxCostSeries     = 2000
-	maxOrgSeries      = 2000
-	maxBudgetSeries   = 500
+	maxTargets         = 20
+	maxRetryAttempts   = 10
+	maxRateLimitBurst  = 5
+	maxRequestsPerSec  = 10
+	maxPages           = 200
+	maxCostSeries      = 2000
+	maxOrgSeries       = 2000
+	maxBudgetSeries    = 500
+	maxTagKeys         = 20
+	maxTagValues       = 500
+	maxServerInFlight  = 1000
+	maxConcurrency     = 100
+	minCURPollInterval = 100 * time.Millisecond
+	maxCURPollInterval = time.Minute
+	maxCURQueryTimeout = time.Hour
 )
 
 var (
@@ -39,7 +49,7 @@ func ValidateServer(value ServerConfig) error {
 		{strings.TrimSpace(value.ListenAddress) == "", "server.listen_address", "must not be empty"},
 		{!strings.HasPrefix(value.MetricsPath, "/"), "server.metrics_path", "must start with /"},
 		{reservedMetricsPath(value), "server.metrics_path", "conflicts with a reserved HTTP route"},
-		{value.MaxInFlight <= 0, "server.max_in_flight", "must be positive"},
+		{value.MaxInFlight <= 0 || value.MaxInFlight > maxServerInFlight, "server.max_in_flight", "must be between 1 and 1000"},
 		{value.ReadHeaderTimeout <= 0, "server.read_header_timeout", "must be positive"},
 		{value.ReadTimeout <= 0, "server.read_timeout", "must be positive"},
 		{value.WriteTimeout <= 0, "server.write_timeout", "must be positive"},
@@ -58,7 +68,7 @@ func reservedMetricsPath(value ServerConfig) bool {
 		(path == "/debug" || path == "/debug/pprof" || strings.HasPrefix(path, "/debug/pprof/"))
 }
 
-// Validate checks all v0.2 field and cross-field invariants. Environment
+// Validate checks all v0.3 field and cross-field invariants. Environment
 // references are resolved here so --check-config and production startup agree.
 func Validate(value Config) error {
 	if err := ValidateServer(value.Server); err != nil {
@@ -92,14 +102,14 @@ func validateBase(value Config) error {
 		{value.Collection.RefreshInterval <= value.AWS.RequestTimeout, "collection.refresh_interval", "must exceed aws.request_timeout"},
 		{nonFinite(value.Collection.JitterRatio), "collection.jitter_ratio", "must be finite"},
 		{value.Collection.JitterRatio < 0 || value.Collection.JitterRatio > 0.5, "collection.jitter_ratio", "must be between 0 and 0.5"},
-		{value.Collection.MaxConcurrency <= 0, "collection.max_concurrency", "must be positive"},
+		{value.Collection.MaxConcurrency <= 0 || value.Collection.MaxConcurrency > maxConcurrency, "collection.max_concurrency", "must be between 1 and 100"},
 		{value.Collection.FailureBackoff.MaxAttempts <= 0 || value.Collection.FailureBackoff.MaxAttempts > maxRetryAttempts, "collection.failure_backoff.max_attempts", "must be between 1 and 10"},
 		{value.Collection.FailureBackoff.Initial <= 0, "collection.failure_backoff.initial", "must be positive"},
 		{value.Collection.FailureBackoff.Max < value.Collection.FailureBackoff.Initial, "collection.failure_backoff.max", "must not be less than initial"},
 		{nonFinite(value.Collection.FailureBackoff.Multiplier), "collection.failure_backoff.multiplier", "must be finite"},
 		{value.Collection.FailureBackoff.Multiplier <= 1, "collection.failure_backoff.multiplier", "must exceed 1"},
 		{!anyCollector, "collection.cost_explorer.collectors", "at least one collector must be enabled"},
-		{value.Collection.CostExplorer.CostMetric != "UnblendedCost", "collection.cost_explorer.cost_metric", "only UnblendedCost is supported"},
+		{len(value.Collection.CostExplorer.CostBases) == 0, "collection.cost_explorer.cost_bases", "must contain at least one basis"},
 		{value.Collection.CostExplorer.MaxPages <= 0 || value.Collection.CostExplorer.MaxPages > maxPages, "collection.cost_explorer.max_pages", "must be between 1 and 200"},
 		{collectors.Forecast && (value.Collection.CostExplorer.PredictionInterval < 80 || value.Collection.CostExplorer.PredictionInterval > 99), "collection.cost_explorer.prediction_interval", "must be between 80 and 99"},
 		{value.Collection.CostExplorer.Dimensions.SeriesLimit <= 0 || value.Collection.CostExplorer.Dimensions.SeriesLimit > maxCostSeries, "collection.cost_explorer.dimensions.series_limit", "must be between 1 and 2000"},
@@ -112,6 +122,20 @@ func validateBase(value Config) error {
 		{value.Collection.Budgets.RefreshInterval <= value.AWS.RequestTimeout, "collection.budgets.refresh_interval", "must exceed aws.request_timeout"},
 		{value.Collection.Budgets.MaxPages <= 0 || value.Collection.Budgets.MaxPages > maxPages, "collection.budgets.max_pages", "must be between 1 and 200"},
 		{value.Collection.Budgets.SeriesLimit <= 0 || value.Collection.Budgets.SeriesLimit > maxBudgetSeries, "collection.budgets.series_limit", "must be between 1 and 500"},
+		{value.Collection.Commitments.RefreshInterval <= value.AWS.RequestTimeout, "collection.commitments.refresh_interval", "must exceed aws.request_timeout"},
+		{value.Collection.Commitments.MaxPages <= 0 || value.Collection.Commitments.MaxPages > maxPages, "collection.commitments.max_pages", "must be between 1 and 200"},
+		{value.Collection.Commitments.SeriesLimit <= 0 || value.Collection.Commitments.SeriesLimit > maxCostSeries, "collection.commitments.series_limit", "must be between 1 and 2000"},
+		{value.Collection.Anomalies.RefreshInterval <= value.AWS.RequestTimeout, "collection.anomalies.refresh_interval", "must exceed aws.request_timeout"},
+		{value.Collection.Anomalies.MaxPages <= 0 || value.Collection.Anomalies.MaxPages > maxPages, "collection.anomalies.max_pages", "must be between 1 and 200"},
+		{value.Collection.Anomalies.SeriesLimit <= 0 || value.Collection.Anomalies.SeriesLimit > 20, "collection.anomalies.series_limit", "must be between 1 and 20"},
+		{value.Collection.Tags.MaxPages <= 0 || value.Collection.Tags.MaxPages > maxPages, "collection.tags.max_pages", "must be between 1 and 200"},
+		{value.Collection.Tags.RefreshInterval <= value.AWS.RequestTimeout, "collection.tags.refresh_interval", "must exceed aws.request_timeout"},
+		{value.Collection.Tags.SeriesLimit <= 0 || value.Collection.Tags.SeriesLimit > maxBudgetSeries, "collection.tags.series_limit", "must be between 1 and 500"},
+		{value.Collection.CUR.RefreshInterval <= value.AWS.RequestTimeout, "collection.cur.refresh_interval", "must exceed aws.request_timeout"},
+		{value.Collection.CUR.MaxPages <= 0 || value.Collection.CUR.MaxPages > maxPages, "collection.cur.max_pages", "must be between 1 and 200"},
+		{value.Collection.CUR.MaxRows <= 0 || value.Collection.CUR.MaxRows > 100000, "collection.cur.max_rows", "must be between 1 and 100000"},
+		{value.Collection.CUR.MaxCurrencies <= 0 || value.Collection.CUR.MaxCurrencies > 10, "collection.cur.max_currencies", "must be between 1 and 10"},
+		{value.Collection.CUR.SeriesLimit <= 0 || value.Collection.CUR.SeriesLimit > 20000, "collection.cur.series_limit", "must be between 1 and 20000"},
 		{value.Cache.FreshnessTTL < value.Collection.RefreshInterval, "cache.freshness_ttl", "must not be less than collection.refresh_interval"},
 		{value.Cache.StaleAfter < value.Cache.FreshnessTTL, "cache.stale_after", "must not be less than freshness_ttl"},
 	}
@@ -146,7 +170,7 @@ func validateTargets(value Config) error {
 		if _, exists := value.AWS.Credentials.Sources[target.Credentials.Source]; !exists {
 			return fmt.Errorf("%s.credentials.source: credential source does not exist", path)
 		}
-		if !target.CostExplorer.Enabled && !target.Organizations.Enabled && !target.Budgets.Enabled {
+		if !target.CostExplorer.Enabled && !target.Organizations.Enabled && !target.Budgets.Enabled && !target.Commitments.Enabled && !target.Anomalies.Enabled && !target.CUR.Enabled && !target.Tags.Enabled {
 			return fmt.Errorf("%s: at least one integration must be enabled", path)
 		}
 		if target.Required {
@@ -173,11 +197,184 @@ func validateTargets(value Config) error {
 		if err := validateBudgets(path, target, value.Collection.Budgets.SeriesLimit); err != nil {
 			return err
 		}
+		if err := validateCUR(path, target, value.AWS.RequestTimeout, value.Collection.CUR.RefreshInterval); err != nil {
+			return err
+		}
+		if err := validateTags(path, target, value.Collection.Tags.SeriesLimit, len(value.Collection.CostExplorer.CostBases), value.Collection.CUR.MaxCurrencies); err != nil {
+			return err
+		}
+		if err := validateCURSeriesBudget(path, target, value.Collection.CUR.SeriesLimit, len(value.Collection.CostExplorer.CostBases), value.Collection.CUR.MaxCurrencies); err != nil {
+			return err
+		}
+	}
+	for index, basis := range value.Collection.CostExplorer.CostBases {
+		if basis != "unblended" && basis != "amortized" && basis != "net" {
+			return fmt.Errorf("collection.cost_explorer.cost_bases[%d]: must be unblended, amortized, or net", index)
+		}
+	}
+	if err := validateUniqueStrings("collection.cost_explorer.cost_bases", value.Collection.CostExplorer.CostBases, nil); err != nil {
+		return err
 	}
 	if requiredCostTargets == 0 {
 		return fmt.Errorf("targets: at least one required Cost Explorer target is required")
 	}
 	return nil
+}
+
+var sqlIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+var workgroupPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+var s3BucketPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+var awsRegionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z0-9]+)+-[0-9]+$`)
+
+func validateCUR(path string, target TargetConfig, requestTimeout, refreshInterval time.Duration) error {
+	if !target.CUR.Enabled {
+		return nil
+	}
+	checks := []struct{ value, field string }{
+		{target.CUR.Region, "region"}, {target.CUR.Database, "database"}, {target.CUR.Table, "table"}, {target.CUR.Workgroup, "workgroup"}, {target.CUR.OutputLocation, "output_location"},
+	}
+	for _, check := range checks {
+		if strings.TrimSpace(check.value) == "" || check.value != strings.TrimSpace(check.value) {
+			return fmt.Errorf("%s.cur.%s: must be non-empty without surrounding whitespace", path, check.field)
+		}
+	}
+	if !awsRegionPattern.MatchString(target.CUR.Region) {
+		return fmt.Errorf("%s.cur.region: must use a valid AWS region format", path)
+	}
+	if !sqlIdentifierPattern.MatchString(target.CUR.Database) {
+		return fmt.Errorf("%s.cur.database: must be a safe SQL identifier", path)
+	}
+	if !sqlIdentifierPattern.MatchString(target.CUR.Table) {
+		return fmt.Errorf("%s.cur.table: must be a safe SQL identifier", path)
+	}
+	if !workgroupPattern.MatchString(target.CUR.Workgroup) {
+		return fmt.Errorf("%s.cur.workgroup: has invalid format", path)
+	}
+	if !validS3Prefix(target.CUR.OutputLocation) {
+		return fmt.Errorf("%s.cur.output_location: must be a valid s3:// bucket prefix", path)
+	}
+	if target.CUR.QueryTimeout <= 0 {
+		return fmt.Errorf("%s.cur.query_timeout: must be positive", path)
+	}
+	if target.CUR.QueryTimeout <= requestTimeout {
+		return fmt.Errorf("%s.cur.query_timeout: must exceed aws.request_timeout", path)
+	}
+	if target.CUR.QueryTimeout > maxCURQueryTimeout {
+		return fmt.Errorf("%s.cur.query_timeout: must not exceed %s", path, maxCURQueryTimeout)
+	}
+	if target.CUR.QueryTimeout >= refreshInterval {
+		return fmt.Errorf("%s.cur.query_timeout: must be less than collection.cur.refresh_interval", path)
+	}
+	if target.CUR.PollInterval < minCURPollInterval {
+		return fmt.Errorf("%s.cur.poll_interval: must be at least %s", path, minCURPollInterval)
+	}
+	if target.CUR.PollInterval > maxCURPollInterval {
+		return fmt.Errorf("%s.cur.poll_interval: must not exceed %s", path, maxCURPollInterval)
+	}
+	if target.CUR.PollInterval >= target.CUR.QueryTimeout {
+		return fmt.Errorf("%s.cur.poll_interval: must be less than query_timeout", path)
+	}
+	if len(target.CUR.TagColumns) > maxTagKeys {
+		return fmt.Errorf("%s.cur.tag_columns: must contain at most %d entries", path, maxTagKeys)
+	}
+	seen := map[string]struct{}{}
+	seenColumns := map[string]struct{}{}
+	for index, column := range target.CUR.TagColumns {
+		if column.Key == "" || column.Key != strings.TrimSpace(column.Key) {
+			return fmt.Errorf("%s.cur.tag_columns[%d].key: invalid", path, index)
+		}
+		if !sqlIdentifierPattern.MatchString(column.Column) {
+			return fmt.Errorf("%s.cur.tag_columns[%d].column: must be a safe SQL identifier", path, index)
+		}
+		if _, exists := seen[column.Key]; exists {
+			return fmt.Errorf("%s.cur.tag_columns[%d].key: must be unique", path, index)
+		}
+		if _, exists := seenColumns[column.Column]; exists {
+			return fmt.Errorf("%s.cur.tag_columns[%d].column: must be unique", path, index)
+		}
+		seen[column.Key] = struct{}{}
+		seenColumns[column.Column] = struct{}{}
+	}
+	return nil
+}
+
+func validS3Prefix(value string) bool {
+	location, err := url.Parse(value)
+	if err != nil || location.Scheme != "s3" || location.User != nil || location.RawQuery != "" || location.Fragment != "" {
+		return false
+	}
+	bucket := location.Host
+	if !s3BucketPattern.MatchString(bucket) || net.ParseIP(bucket) != nil || strings.Contains(bucket, "..") || strings.Contains(bucket, ".-") || strings.Contains(bucket, "-.") {
+		return false
+	}
+	return strings.Trim(location.Path, "/") != ""
+}
+
+func validateTags(path string, target TargetConfig, seriesLimit, basisCount, maxCurrencies int) error {
+	if !target.Tags.Enabled {
+		return nil
+	}
+	if !target.CUR.Enabled && !target.CostExplorer.Enabled {
+		return fmt.Errorf("%s.tags.enabled: requires cur or cost_explorer", path)
+	}
+	if len(target.Tags.Keys) == 0 || len(target.Tags.Keys) > maxTagKeys {
+		return fmt.Errorf("%s.tags.keys: must contain between 1 and %d entries", path, maxTagKeys)
+	}
+	seen := map[string]struct{}{}
+	columns := map[string]struct{}{}
+	for _, item := range target.CUR.TagColumns {
+		columns[item.Key] = struct{}{}
+	}
+	for index, key := range target.Tags.Keys {
+		if key.Key == "" || key.Key != strings.TrimSpace(key.Key) {
+			return fmt.Errorf("%s.tags.keys[%d].key: invalid", path, index)
+		}
+		if key.MaxValues <= 0 || key.MaxValues > maxTagValues {
+			return fmt.Errorf("%s.tags.keys[%d].max_values: must be between 1 and %d", path, index, maxTagValues)
+		}
+		if _, exists := seen[key.Key]; exists {
+			return fmt.Errorf("%s.tags.keys[%d].key: must be unique", path, index)
+		}
+		seen[key.Key] = struct{}{}
+		if target.CUR.Enabled {
+			if _, exists := columns[key.Key]; !exists {
+				return fmt.Errorf("%s.tags.keys[%d].key: requires a matching cur.tag_columns entry", path, index)
+			}
+		}
+	}
+	if target.CUR.Enabled && len(columns) != len(seen) {
+		return fmt.Errorf("%s.cur.tag_columns: must exactly match tags.keys", path)
+	}
+	currencyCount := 1
+	if target.CUR.Enabled {
+		currencyCount = maxCurrencies
+	}
+	if tagSeriesBudget(target, basisCount, currencyCount) > seriesLimit {
+		return fmt.Errorf("%s.tags.keys: exceeds collection.tags.series_limit", path)
+	}
+	return nil
+}
+
+func validateCURSeriesBudget(path string, target TargetConfig, seriesLimit, basisCount, maxCurrencies int) error {
+	if !target.CUR.Enabled {
+		return nil
+	}
+	required := 2 * max(1, basisCount) * max(1, maxCurrencies)
+	if target.Tags.Enabled {
+		required += tagSeriesBudget(target, basisCount, maxCurrencies)
+	}
+	if required > seriesLimit {
+		return fmt.Errorf("collection.cur.series_limit: must be at least %d for %s.cur", required, path)
+	}
+	return nil
+}
+
+func tagSeriesBudget(target TargetConfig, basisCount, currencyCount int) int {
+	values := 0
+	for _, key := range target.Tags.Keys {
+		values += key.MaxValues
+	}
+	return values * 2 * max(1, basisCount) * max(1, currencyCount)
 }
 
 func validateAssumeRole(path string, target TargetConfig, roles map[string]struct{}) error {

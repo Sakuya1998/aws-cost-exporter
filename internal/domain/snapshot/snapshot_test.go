@@ -15,9 +15,9 @@ func TestSnapshotCopiesSortsTraversesAndCounts(t *testing.T) {
 	dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
 	one, _ := cost.NewMoney(1, "USD")
 	two, _ := cost.NewMoney(2, "USD")
-	costs := []cost.Cost{{Target: "b", Window: cost.WindowDaily, Period: day, Dimension: dimension, Amount: two}, {Target: "a", Window: cost.WindowDaily, Period: day, Dimension: dimension, Amount: one}}
+	costs := []cost.Cost{{Target: "b", Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Period: day, Dimension: dimension, Amount: two}, {Target: "a", Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Period: day, Dimension: dimension, Amount: one}}
 	actual := one
-	value := New(costs, []cost.Forecast{{Target: "a", Period: day, Mean: one, LowerBound: one, UpperBound: two}}, []budget.Budget{{Target: "a", Name: "Monthly", Type: "COST", TimeUnit: "MONTHLY", Limit: two, Actual: actual, HasActual: true}}, []organization.Account{{Target: "a", AccountID: "111111111111", Name: "one", Status: "ACTIVE"}})
+	value := New(costs, []cost.Forecast{{Target: "a", Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Period: day, Mean: one, LowerBound: one, UpperBound: two}}, []budget.Budget{{Target: "a", Name: "Monthly", Type: "COST", TimeUnit: "MONTHLY", Limit: two, Actual: actual, HasActual: true}}, []organization.Account{{Target: "a", AccountID: "111111111111", Name: "one", Status: "ACTIVE"}})
 	costs[0].Target = "changed"
 	if got := value.Costs(); len(got) != 2 || got[0].Target != "a" {
 		t.Fatalf("costs=%#v", got)
@@ -43,7 +43,7 @@ func TestMergeAndValidation(t *testing.T) {
 	day := cost.DayContaining(time.Now())
 	dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
 	money, _ := cost.NewMoney(1, "USD")
-	partial := New([]cost.Cost{{Target: "a", Window: cost.WindowDaily, Period: day, Dimension: dimension, Amount: money}}, nil, nil, nil)
+	partial := New([]cost.Cost{{Target: "a", Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Period: day, Dimension: dimension, Amount: money}}, nil, nil, nil)
 	merged := Merge(partial, New(nil, nil, nil, nil))
 	if len(merged.Costs()) != 1 {
 		t.Fatal("merge lost values")

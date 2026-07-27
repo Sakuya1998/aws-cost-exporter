@@ -1,4 +1,4 @@
-# v0.2 uses one explicit target schema. Replace account_id with the account
+# v0.3 uses one explicit target schema. Replace account_id with the account
 # represented by the default credential chain before starting the exporter.
 server:
   listen_address: ":8080"
@@ -8,7 +8,7 @@ server:
   write_timeout: 30s
   idle_timeout: 60s
   shutdown_timeout: 15s
-  max_in_flight: 20
+  max_in_flight: 20 # valid range: 1..1000
   debug:
     enabled: false
 
@@ -37,6 +37,7 @@ aws:
     cost_explorer: ""
     organizations: ""
     budgets: ""
+    athena: ""
   retry:
     max_attempts: 5
     base_delay: 1s
@@ -70,19 +71,40 @@ targets:
     budgets:
       enabled: false
       names: []
+    commitments:
+      enabled: false
+    anomalies:
+      enabled: false
+    tags:
+      enabled: false
+      keys: []
+      # - key: Environment
+      #   max_values: 50 # included in the per-target Tag series budget
+    cur:
+      enabled: false
+      region: us-east-1
+      database: ""
+      table: ""
+      workgroup: ""
+      output_location: ""
+      query_timeout: 10m # > aws.request_timeout, <= 1h, and < collection.cur.refresh_interval
+      poll_interval: 2s # 100ms..1m
+      tag_columns: []
+      # - key: Environment
+      #   column: resource_tags_user_environment
 
 collection:
   refresh_interval: 6h
   startup_refresh: true
   jitter_ratio: 0.10
-  max_concurrency: 4
+  max_concurrency: 4 # valid range: 1..100
   failure_backoff:
     max_attempts: 3
     initial: 1m
     max: 30m
     multiplier: 2
   cost_explorer:
-    cost_metric: UnblendedCost
+    cost_bases: [unblended]
     max_pages: 50
     prediction_interval: 80
     collectors:
@@ -103,6 +125,24 @@ collection:
     refresh_interval: 6h
     max_pages: 20
     series_limit: 100
+  commitments:
+    refresh_interval: 24h
+    max_pages: 20
+    series_limit: 20
+  anomalies:
+    refresh_interval: 6h
+    max_pages: 20
+    series_limit: 10
+  tags:
+    refresh_interval: 6h
+    max_pages: 50
+    series_limit: 500
+  cur:
+    refresh_interval: 24h
+    max_pages: 50
+    max_rows: 5000
+    max_currencies: 1
+    series_limit: 2000
 
 cache:
   freshness_ttl: 12h

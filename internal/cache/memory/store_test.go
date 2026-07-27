@@ -152,7 +152,7 @@ func (clock *fakeClock) Advance(value time.Duration) { clock.now = clock.now.Add
 func partialCost(target string, amount float64, kind cost.DimensionKind, value string) snapshot.PartialSnapshot {
 	money, _ := cost.NewMoney(amount, "USD")
 	dimension, _ := cost.NewDimension(kind, value)
-	return snapshot.New([]cost.Cost{{Target: identity.TargetID(target), Window: cost.WindowDaily, Period: cost.DayContaining(time.Now()), Dimension: dimension, Amount: money}}, nil, nil, nil)
+	return snapshot.New([]cost.Cost{{Target: identity.TargetID(target), Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Period: cost.DayContaining(time.Now()), Dimension: dimension, Amount: money}}, nil, nil, nil)
 }
 func twoServiceCosts(target string, amount float64) snapshot.PartialSnapshot {
 	return snapshot.Merge(partialCost(target, amount, cost.DimensionService, "A"), partialCost(target, amount, cost.DimensionService, "B"))

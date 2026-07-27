@@ -90,7 +90,7 @@ func (store *Store) Publish(id identity.CollectorID, partial snapshot.PartialSna
 	store.writeMu.Lock()
 	defer store.writeMu.Unlock()
 	current := store.current.Load()
-	parts, statuses := cloneMap(current.parts), cloneMap(current.statuses)
+	parts, statuses := cloneParts(current.parts), cloneStatuses(current.statuses)
 	parts[id] = partial
 	merged, err := store.mergeParts(parts)
 	if err != nil {
@@ -117,7 +117,7 @@ func (store *Store) RecordFailure(id identity.CollectorID) error {
 	store.writeMu.Lock()
 	defer store.writeMu.Unlock()
 	current := store.current.Load()
-	statuses := cloneMap(current.statuses)
+	statuses := cloneStatuses(current.statuses)
 	status := statuses[id]
 	status.LastAttempt, status.Up = store.clock.Now().UTC(), false
 	statuses[id] = status
@@ -153,10 +153,18 @@ func (store *Store) freshness(now, success time.Time) ports.Freshness {
 	return ports.FreshnessStale
 }
 
-func cloneMap[Key comparable, Value any](source map[Key]Value) map[Key]Value {
-	result := make(map[Key]Value, len(source)+1)
-	for key, value := range source {
-		result[key] = value
+func cloneParts(source map[identity.CollectorID]snapshot.PartialSnapshot) map[identity.CollectorID]snapshot.PartialSnapshot {
+	result := make(map[identity.CollectorID]snapshot.PartialSnapshot, len(source)+1)
+	for id, value := range source {
+		result[id] = value
+	}
+	return result
+}
+
+func cloneStatuses(source map[identity.CollectorID]ports.CollectorStatus) map[identity.CollectorID]ports.CollectorStatus {
+	result := make(map[identity.CollectorID]ports.CollectorStatus, len(source)+1)
+	for id, value := range source {
+		result[id] = value
 	}
 	return result
 }
@@ -213,7 +221,7 @@ func (store *Store) mergeParts(parts map[identity.CollectorID]snapshot.PartialSn
 			return snapshot.Snapshot{}, ErrSeriesLimit
 		}
 	}
-	result := snapshot.New(merged.Costs(), merged.Forecasts(), merged.Budgets(), selected)
+	result := snapshot.NewWithData(merged.Costs(), merged.Forecasts(), merged.Budgets(), selected, merged.Commitments(), merged.Anomalies(), merged.TagCosts())
 	if err := result.ValidateUnique(); err != nil {
 		return snapshot.Snapshot{}, err
 	}

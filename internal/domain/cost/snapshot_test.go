@@ -84,6 +84,19 @@ func TestMergeSnapshotsPreservesTotal(t *testing.T) {
 	}
 }
 
+func TestLessUsesCurrencyAsFinalMetricIdentityTieBreaker(t *testing.T) {
+	period := cost.DayContaining(time.Now())
+	dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
+	euro, _ := cost.NewMoney(1, "EUR")
+	dollar, _ := cost.NewMoney(1, "USD")
+	left := cost.Cost{Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, Period: period, Dimension: dimension, Amount: euro}
+	right := left
+	right.Amount = dollar
+	if !cost.Less(left, right) || cost.Less(right, left) {
+		t.Fatal("currency did not provide deterministic tie-break order")
+	}
+}
+
 func TestSnapshotForEachVisitsValuesWithoutSeriesScaledAllocations(t *testing.T) {
 	period := cost.DayContaining(time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC))
 	amount, _ := cost.NewMoney(1, "USD")

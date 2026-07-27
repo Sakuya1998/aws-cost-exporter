@@ -187,8 +187,8 @@ func TestBinaryPublishesServiceAndTotalMetrics(t *testing.T) {
 	awaitStatus(t, baseURL+"/ready", http.StatusOK)
 	metrics := fetch(t, baseURL+"/metrics")
 	for _, fragment := range []string{
-		"aws_cost_daily_amount{currency=\"USD\",target=\"e2e\"} 11",
-		"aws_cost_service_daily_amount{aws_service=\"Amazon EC2\",currency=\"USD\",target=\"e2e\"} 5",
+		"aws_cost_daily_amount{cost_basis=\"unblended\",currency=\"USD\",provider=\"cost_explorer\",target=\"e2e\"} 11",
+		"aws_cost_service_daily_amount{aws_service=\"Amazon EC2\",cost_basis=\"unblended\",currency=\"USD\",provider=\"cost_explorer\",target=\"e2e\"} 5",
 	} {
 		if !strings.Contains(metrics, fragment) {
 			t.Fatalf("metrics missing %q\n%s", fragment, metrics)
