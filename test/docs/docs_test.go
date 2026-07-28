@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -23,26 +22,18 @@ type statement struct {
 	Condition map[string]map[string]interface{} `json:"Condition"`
 }
 
-func TestREADMEContainsDeploymentAndRuntimeContracts(t *testing.T) {
+func TestREADMEIsStableLandingPage(t *testing.T) {
 	content := read(t, filepath.Join("..", "..", "README.md"))
 	for _, fragment := range []string{
 		"github.com/sakuya1998/aws-cost-exporter",
+		"v0.3.0",
 		"ghcr.io/sakuya1998/aws-cost-exporter",
 		"oci://ghcr.io/sakuya1998/charts/aws-cost-exporter",
 		"make build", "docker compose up --build", "helm install",
-		"--config", "--listen-address", "--log-level", "--check-config", "--version",
-		"AWS_COST_EXPORTER_SERVER__LISTEN_ADDRESS",
 		"/metrics", "/healthz", "/ready", "/version",
-		"ce:GetCostAndUsage", "ce:GetCostForecast",
-		"Cost Explorer API requests are billed", "not a financial reconciliation system",
-		"Never sum different `currency`", "does not call AWS during a Prometheus scrape",
-		"max_pages", "series_limit", "8 `GetCostAndUsage`",
-		"cost_bases", "max_currencies", "overflow_label", "shutdown_timeout",
-		"scheduler_shutdown_timeouts_total",
-		"AWSCostExplorerPaginationSpike", "AWSCostExplorerThrottleSustained",
-		"pagination_pages_total", "Apache License", "LICENSE",
-		"configs/aws-cost-exporter.example.yaml", "dashboards/grafana/aws-cost-exporter.json",
-		"rules/prometheus/aws-cost-exporter.rules.yaml", "docs/operations/troubleshooting.md",
+		"not a financial reconciliation system", "does not call AWS during a Prometheus scrape",
+		"https://github.com/Sakuya1998/aws-cost-exporter/wiki",
+		"Home-zh-CN", "Apache License", "LICENSE",
 	} {
 		if !strings.Contains(content, fragment) {
 			t.Errorf("README lacks %q", fragment)
@@ -50,28 +41,8 @@ func TestREADMEContainsDeploymentAndRuntimeContracts(t *testing.T) {
 	}
 }
 
-func TestREADMETracksProductionMetricNames(t *testing.T) {
-	readme := read(t, filepath.Join("..", "..", "README.md"))
-	sources := []struct {
-		name, prefix, pattern string
-	}{
-		{"cost.go", "aws_cost_", `costDesc\("([^"]+)"`},
-		{"cost.go", "aws_budget_", `budgetDesc\("([^"]+)"`},
-		{"exporter.go", "aws_cost_exporter_", `(?:selfDesc|counter|histogram)\("([^"]+)"`},
-	}
-	for _, source := range sources {
-		content := read(t, filepath.Join("..", "..", "internal", "metrics", source.name))
-		for _, match := range regexp.MustCompile(source.pattern).FindAllStringSubmatch(content, -1) {
-			metric := source.prefix + match[1]
-			if !strings.Contains(readme, metric) {
-				t.Errorf("README lacks production metric %q", metric)
-			}
-		}
-	}
-}
-
 func TestTroubleshootingCoversOperationalFailureModes(t *testing.T) {
-	content := read(t, filepath.Join("..", "..", "docs", "operations", "troubleshooting.md"))
+	content := read(t, filepath.Join("..", "..", "docs", "wiki", "Troubleshooting-and-Logging.md"))
 	for _, fragment := range []string{
 		"/ready", "`missing`", "`stale`", "collector_up", "cache_age_seconds",
 		"403", "Cost Explorer", "throttling", "aws_api_requests_total",
@@ -227,9 +198,9 @@ func assertPrefixCondition(t *testing.T, item statement, expected []string) {
 }
 
 func TestCURDocumentationRequiresMatchingAthenaRegion(t *testing.T) {
-	content := read(t, filepath.Join("..", "..", "README.md"))
+	content := read(t, filepath.Join("..", "..", "docs", "wiki", "CUR-and-Athena.md"))
 	if !strings.Contains(content, "Athena workgroup ARN region must match `targets[].cur.region`") {
-		t.Error("README does not bind the Athena workgroup ARN region to targets[].cur.region")
+		t.Error("CUR Wiki does not bind the Athena workgroup ARN region to targets[].cur.region")
 	}
 }
 

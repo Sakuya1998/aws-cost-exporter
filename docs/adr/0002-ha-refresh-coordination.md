@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for v0.2.
+Accepted for v0.2 and reaffirmed for v0.3.
 
 ## Context
 
@@ -10,7 +10,7 @@ Multiple replicas independently call billable AWS APIs, maintain unrelated in-me
 
 ## Decision
 
-v0.2 keeps `replicaCount: 1` and does not implement leader election or shared persistence.
+v0.2 and v0.3 keep `replicaCount: 1` and do not implement leader election or shared persistence.
 
 Options evaluated:
 

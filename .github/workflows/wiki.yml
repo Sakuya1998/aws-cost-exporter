@@ -1,0 +1,73 @@
+name: Publish Wiki
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "docs/wiki/**"
+      - ".github/workflows/wiki.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki-publish
+  cancel-in-progress: false
+
+env:
+  WIKI_SOURCE: docs/wiki
+  SOURCE_SHA: ${{ github.sha }}
+
+jobs:
+  publish:
+    if: github.repository == 'Sakuya1998/aws-cost-exporter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Validate Wiki source
+        run: go test -count=1 ./test/docs/... ./test/ci/...
+      - name: Clone Wiki repository
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          wiki_remote="https://github.com/${GITHUB_REPOSITORY}.wiki.git"
+          wiki_dir="${RUNNER_TEMP}/aws-cost-exporter-wiki"
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" "$wiki_dir"
+          runner_root="$(realpath "$RUNNER_TEMP")"
+          resolved_wiki="$(realpath "$wiki_dir")"
+          [[ "$resolved_wiki" == "$runner_root"/* ]]
+          test -d "$wiki_dir/.git"
+          echo "WIKI_REMOTE=$wiki_remote" >> "$GITHUB_ENV"
+          echo "WIKI_DIR=$wiki_dir" >> "$GITHUB_ENV"
+      - name: Synchronize and publish Wiki
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -d "$WIKI_DIR/.git"
+          test -f "$WIKI_SOURCE/Home.md"
+          test -f "$WIKI_SOURCE/Home-zh-CN.md"
+          find "$WIKI_DIR" -maxdepth 1 -type f -name '*.md' -delete
+          find "$WIKI_SOURCE" -maxdepth 1 -type f -name '*.md' ! -name 'README.md' \
+            -exec cp '{}' "$WIKI_DIR/" ';'
+          test ! -e "$WIKI_DIR/README.md"
+          git -C "$WIKI_DIR" config user.name "github-actions[bot]"
+          git -C "$WIKI_DIR" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$WIKI_DIR" add -A
+          if git -C "$WIKI_DIR" diff --cached --quiet; then
+            echo "Wiki is already synchronized with $SOURCE_SHA"
+            exit 0
+          fi
+          git -C "$WIKI_DIR" commit -m "docs: sync Wiki from $SOURCE_SHA"
+          git -C "$WIKI_DIR" push \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" \
+            HEAD:master
