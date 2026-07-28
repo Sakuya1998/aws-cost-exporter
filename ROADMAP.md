@@ -50,7 +50,7 @@ require wildcard `sts:AssumeRole` permissions.
 
 ## v0.3: Commitment and detailed billing data
 
-Status: implementation complete on `codex/v0.3-development`; pending PR and release acceptance.
+Status: completed in v0.3.0. PR #9, the `master` CI and release workflow passed; the signed container image and Helm OCI chart were independently verified. See the [v0.3.0 verification record](docs/releases/v0.3.0-verification.md).
 
 Goal: extend cost semantics while keeping metric contracts explicit.
 - Add Savings Plans and Reserved Instance utilization and coverage.

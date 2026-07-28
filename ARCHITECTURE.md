@@ -1,88 +1,9 @@
 # Architecture
 
-## Purpose
+The maintained architecture guide for the current stable release lives in the repository-backed Wiki source:
 
-aws-cost-exporter converts low-frequency AWS billing APIs and fixed-schema CUR 2.0 Athena results into stable, target-scoped Prometheus metrics. AWS remains the source of truth. The exporter is not a billing database or financial reconciliation system.
+- [Architecture source](docs/wiki/Architecture.md)
+- [Published English Wiki](https://github.com/Sakuya1998/aws-cost-exporter/wiki/Architecture)
+- [Published 简体中文 Wiki](https://github.com/Sakuya1998/aws-cost-exporter/wiki/Architecture-zh-CN)
 
-Prometheus scrapes never trigger AWS requests. Background collectors publish immutable partial results into one atomic in-memory aggregate snapshot.
-
-## Modular monolith
-
-- `internal/domain` owns target identity, provider/basis-aware cost, commitment, anomaly, tag cost, budget, organization, and aggregate snapshot values.
-- `internal/ports` defines narrow application interfaces.
-- `internal/collector` maps reader ports to typed partial snapshots.
-- `internal/scheduler` owns per-job intervals, target-scoped single-flight, one-at-a-time target execution, global concurrency, and bounded refresh backoff.
-- `internal/aws` owns SDK clients, AssumeRole, request attempts, pagination, mapping, and safe error classification.
-- `internal/cache/memory` owns copy-on-write partials keyed by `CollectorID` and atomic aggregate publication.
-- `internal/metrics` maps snapshots and bounded events to fixed Prometheus descriptors.
-- `internal/httpserver` exposes metrics, probes, version, and optional diagnostics.
-- `internal/app` is the composition root.
-
-Dependencies continue to point inward; domain packages do not import AWS SDK, Prometheus, HTTP, Cobra, or Viper.
-
-## Identity and aggregate contract
-
-```go
-type TargetID string
-
-type CollectorID struct {
-    Target TargetID
-    Name   string
-}
-```
-
-Every Cost, Forecast, Budget, Organizations account, partial cache entry, collector status, scheduler job, log event, and target-scoped metric carries target identity.
-
-Cost values additionally carry a bounded provider (`cost_explorer` or `cur_athena`) and accounting basis (`unblended`, `amortized`, or `net`). Snapshot uniqueness includes both fields, so providers and accounting semantics are never silently merged.
-
-Collectors return one strong `PartialSnapshot` containing typed cost, forecast, budget, and account slices. The scheduler and cache never use `any` or AWS SDK response types.
-
-## Runtime data flow
-
-```mermaid
-flowchart LR
-  Base[Base AWS credential chain] --> Target[Target factory]
-  Target --> Direct[Direct credentials]
-  Target --> STS[STS AssumeRole and CredentialsCache]
-  Direct --> Clients[Target AWS clients]
-  STS --> Clients
-  Clients --> Collectors[Target collectors]
-  Collectors --> Scheduler[Shared scheduler]
-  Scheduler --> Cache[Atomic aggregate cache]
-  Cache --> Metrics[Prometheus collectors]
-  Metrics --> HTTP[HTTP server]
-```
-
-One target failure updates only its `CollectorID` status and retains the last successful partial. Other targets continue refreshing and publishing. Each scheduled run has a finite collector-attempt budget, and one target cannot consume multiple global scheduler slots at once.
-
-## AWS request policy
-
-The base AWS config is loaded once. AssumeRole targets use independent credential caches. ExternalId is read from an environment variable and is never included in safe errors or logs.
-
-Every SDK attempt follows:
-
-```text
-global limiter → target limiter → SDK attempt token → HTTP request
-```
-
-The wrapper is installed through `GetAttemptToken`, so initial attempts and retries are both limited without replacing SDK retry/backoff/token-bucket behavior. Context cancellation stops limiter waits, retries, pagination, backoff timers, and workers.
-
-Operation, status, and reason labels are fixed enums. Arbitrary AWS messages and request IDs cannot become metric labels.
-
-## Snapshot and cardinality
-
-Cache writes use a mutex, copy the parts/status maps, rebuild a deterministic aggregate, and publish it through an atomic pointer. Scrapes read the pointer without application locks and iterate immutable values without copying entire slices.
-
-Organizations raw metadata is joined with either the configured account allowlist or observed linked-account cost dimensions. Account email is discarded. Budget names are explicit allowlists. All pages and exposed series have hard limits.
-
-## Readiness and HA
-
-Required targets gate readiness through all enabled Cost Explorer collectors. Optional targets, Organizations, and Budgets remain observable but do not make the whole process unready. Liveness reports process health only.
-
-v0.3 remains single-replica. See [ADR 0002](docs/adr/0002-ha-refresh-coordination.md) for the HA evaluation.
-
-Commitment, anomaly, tag, and CUR collectors are optional and do not gate readiness. CUR targets carry an Athena region independent from the Cost Explorer region. CUR queries run only in background jobs through `StartQueryExecution`, bounded status polling, and paginated `GetQueryResults`; one deadline covers the complete lifecycle, and every nonterminal abnormal exit issues best-effort `StopQueryExecution`. Totals and Tag queries each reference the CUR table once, then use bounded row expansion for window, basis, and tag dimensions. Result metadata, headers, columns, row counts, currency count, and pagination tokens are validated before atomic publication. The CUR startup series budget includes `max_currencies`, and the collector enforces the same distinct-currency bound across total and Tag results before publishing. Prometheus scrapes only the resulting immutable snapshot.
-
-## Compatibility
-
-v0.3 intentionally replaces the v0.2 configuration and cost-label contract. It has no legacy mode, migration layer, dual exposition, deprecated aliases, or `config_version`. HTTP paths remain stable. Cost metrics add mandatory `provider` and `cost_basis` labels.
+Architecture decisions remain authoritative in [docs/adr](docs/adr). The central invariant is unchanged: background collectors publish immutable snapshots, and Prometheus scrapes never initiate AWS or Athena requests.
