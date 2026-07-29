@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,31 +40,20 @@ func prepare(source, destination string) error {
 		return errors.New("destination contains source directory")
 	}
 
-	home, err := os.ReadFile(filepath.Join(sourcePath, "Home.md"))
+	home, pages, err := readSourcePages(sourcePath)
 	if err != nil {
-		return fmt.Errorf("read required Home.md: %w", err)
-	}
-	entries, err := os.ReadDir(sourcePath)
-	if err != nil {
-		return fmt.Errorf("read source directory: %w", err)
+		return err
 	}
 
 	if err := os.RemoveAll(destinationPath); err != nil {
 		return fmt.Errorf("clear destination: %w", err)
 	}
-	if err := os.MkdirAll(destinationPath, 0o755); err != nil {
+	if err := os.MkdirAll(destinationPath, 0o750); err != nil {
 		return fmt.Errorf("create destination: %w", err)
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" || excluded(entry.Name()) {
-			continue
-		}
-		content, readErr := os.ReadFile(filepath.Join(sourcePath, entry.Name()))
-		if readErr != nil {
-			return fmt.Errorf("read %s: %w", entry.Name(), readErr)
-		}
-		if writeErr := writePage(destinationPath, entry.Name(), rewriteWikiLinks(content)); writeErr != nil {
+	for _, page := range pages {
+		if writeErr := writePage(destinationPath, page.name, rewriteWikiLinks(page.content)); writeErr != nil {
 			return writeErr
 		}
 	}
@@ -72,6 +62,44 @@ func prepare(source, destination string) error {
 		return err
 	}
 	return nil
+}
+
+type sourcePage struct {
+	name    string
+	content []byte
+}
+
+func readSourcePages(sourcePath string) (home []byte, pages []sourcePage, returnErr error) {
+	sourceRoot, err := os.OpenRoot(sourcePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open source directory: %w", err)
+	}
+	defer func() {
+		if closeErr := sourceRoot.Close(); returnErr == nil && closeErr != nil {
+			returnErr = fmt.Errorf("close source directory: %w", closeErr)
+		}
+	}()
+
+	sourceFS := sourceRoot.FS()
+	home, err = fs.ReadFile(sourceFS, "Home.md")
+	if err != nil {
+		return nil, nil, fmt.Errorf("read required Home.md: %w", err)
+	}
+	entries, err := fs.ReadDir(sourceFS, ".")
+	if err != nil {
+		return nil, nil, fmt.Errorf("read source directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" || excluded(entry.Name()) {
+			continue
+		}
+		content, readErr := fs.ReadFile(sourceFS, entry.Name())
+		if readErr != nil {
+			return nil, nil, fmt.Errorf("read %s: %w", entry.Name(), readErr)
+		}
+		pages = append(pages, sourcePage{name: entry.Name(), content: content})
+	}
+	return home, pages, nil
 }
 
 func excluded(name string) bool {
@@ -98,7 +126,7 @@ func rewriteWikiLinks(content []byte) []byte {
 }
 
 func writePage(destination, name string, content []byte) error {
-	if err := os.WriteFile(filepath.Join(destination, name), content, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(destination, name), content, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", name, err)
 	}
 	return nil
