@@ -57,12 +57,12 @@ func TestDependabotAndGolangCIBaselines(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(dependabot), &document); err != nil {
 		t.Fatalf("parse Dependabot config: %v", err)
 	}
-	for _, ecosystem := range []string{"gomod", "github-actions", "docker"} {
+	for _, ecosystem := range []string{"gomod", "github-actions", "docker", "pip"} {
 		if !strings.Contains(dependabot, `package-ecosystem: "`+ecosystem+`"`) {
 			t.Errorf("Dependabot lacks %s updates", ecosystem)
 		}
 	}
-	if strings.Count(dependabot, "groups:") < 3 {
+	if strings.Count(dependabot, "groups:") < 4 {
 		t.Error("Dependabot updates are not grouped by ecosystem")
 	}
 	lint := read(t, filepath.Join("..", "..", ".golangci.yml"))
@@ -109,6 +109,101 @@ func TestWikiWorkflowIsSafeAndScoped(t *testing.T) {
 	for _, match := range uses {
 		if !sha.MatchString(match[1]) {
 			t.Errorf("wiki action is not SHA pinned: %s", match[0])
+		}
+	}
+}
+
+func TestPagesWorkflowIsSafePinnedAndScoped(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", ".github", "workflows", "pages.yml"))
+	var document any
+	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
+		t.Fatalf("parse Pages workflow: %v", err)
+	}
+	root, ok := document.(map[string]any)
+	if !ok {
+		t.Fatalf("Pages workflow root has type %T", document)
+	}
+	permissions, ok := root["permissions"].(map[string]any)
+	if !ok || len(permissions) != 1 || permissions["contents"] != "read" {
+		t.Errorf("workflow permissions=%v, want only contents: read", root["permissions"])
+	}
+	jobs, ok := root["jobs"].(map[string]any)
+	if !ok {
+		t.Fatalf("Pages workflow jobs has type %T", root["jobs"])
+	}
+	deploy, ok := jobs["deploy"].(map[string]any)
+	if !ok {
+		t.Fatalf("Pages deploy job has type %T", jobs["deploy"])
+	}
+	deployPermissions, ok := deploy["permissions"].(map[string]any)
+	if !ok || len(deployPermissions) != 2 || deployPermissions["pages"] != "write" || deployPermissions["id-token"] != "write" {
+		t.Errorf("deploy permissions=%v, want pages: write and id-token: write", deploy["permissions"])
+	}
+	buildYAML, err := yaml.Marshal(jobs["build"])
+	if err != nil {
+		t.Fatalf("marshal Pages build job: %v", err)
+	}
+	deployYAML, err := yaml.Marshal(deploy)
+	if err != nil {
+		t.Fatalf("marshal Pages deploy job: %v", err)
+	}
+	if strings.Contains(string(buildYAML), "actions/configure-pages") || !strings.Contains(string(deployYAML), "actions/configure-pages") {
+		t.Error("configure-pages must run in the deploy job that has Pages permission")
+	}
+	for _, fragment := range []string{
+		"branches: [master]", "workflow_dispatch:", "docs/wiki/**", "mkdocs.yml", "requirements-docs.txt",
+		"contents: read", "pages: write", "id-token: write", "cancel-in-progress: false",
+		"go run ./tools/pages", "mkdocs build --strict", "actions/configure-pages", "actions/upload-pages-artifact",
+		"actions/deploy-pages", "github-pages", "url: ${{ steps.deployment.outputs.page_url }}",
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("Pages workflow lacks %q", fragment)
+		}
+	}
+	for _, forbidden := range []string{
+		"pull_request_target", "contents: write", "packages: write", "secrets.",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("Pages workflow contains forbidden fragment %q", forbidden)
+		}
+	}
+	uses := regexp.MustCompile(`uses:\s*[\w./-]+@([^\s#]+)`).FindAllStringSubmatch(content, -1)
+	if len(uses) < 5 {
+		t.Fatalf("Pages workflow has %d pinned actions, want at least 5", len(uses))
+	}
+	sha := regexp.MustCompile(`^[0-9a-f]{40}$`)
+	for _, match := range uses {
+		if !sha.MatchString(match[1]) {
+			t.Errorf("Pages action is not SHA pinned: %s", match[0])
+		}
+	}
+}
+
+func TestPagesMkDocsConfigurationUsesGeneratedWikiSource(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", "mkdocs.yml"))
+	var document any
+	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
+		t.Fatalf("parse MkDocs config: %v", err)
+	}
+	for _, fragment := range []string{
+		"site_url: https://sakuya1998.github.io/aws-cost-exporter/", "docs_dir: .pages-docs", "name: material",
+		"search", "content.code.copy", "pymdownx.superfences", "Home-zh-CN.md",
+		"Configuration-Reference.md", "Configuration-Reference-zh-CN.md",
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("MkDocs config lacks %q", fragment)
+		}
+	}
+	for _, brokenEditLinkSetting := range []string{"content.action.edit", "edit_uri:"} {
+		if strings.Contains(content, brokenEditLinkSetting) {
+			t.Errorf("MkDocs config enables generated-source edit links through %q", brokenEditLinkSetting)
+		}
+	}
+
+	requirements := read(t, filepath.Join("..", "..", "requirements-docs.txt"))
+	for _, dependency := range []string{"mkdocs==1.6.1", "mkdocs-material==9.7.7"} {
+		if !strings.Contains(requirements, dependency) {
+			t.Errorf("documentation requirements lack %q", dependency)
 		}
 	}
 }

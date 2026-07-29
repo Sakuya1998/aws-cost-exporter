@@ -4,6 +4,8 @@
 *.test
 *.out
 /dist/
+/.pages-docs/
+/site/
 
 # Local editor and operating-system files.
 .idea/
