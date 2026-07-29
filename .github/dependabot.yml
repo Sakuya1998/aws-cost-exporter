@@ -23,3 +23,11 @@ updates:
     groups:
       base-images:
         patterns: ["*"]
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      documentation-dependencies:
+        patterns: ["*"]

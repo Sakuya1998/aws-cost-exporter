@@ -46,6 +46,7 @@ Validate the exact production configuration and referenced environment variables
 
 ## Documentation
 
+- [Documentation site](https://sakuya1998.github.io/aws-cost-exporter/)
 - [English Wiki](https://github.com/Sakuya1998/aws-cost-exporter/wiki)
 - [简体中文 Wiki](https://github.com/Sakuya1998/aws-cost-exporter/wiki/Home-zh-CN)
 - [Example configuration](configs/aws-cost-exporter.example.yaml)
@@ -56,7 +57,7 @@ Validate the exact production configuration and referenced environment variables
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 
-The Wiki is generated from `docs/wiki` on `master`. Submit documentation corrections through a pull request rather than editing the GitHub Wiki directly.
+The documentation site and Wiki are generated from `docs/wiki` on `master`. Submit documentation corrections through a pull request rather than editing the published copies directly.
 
 ## Development
 
