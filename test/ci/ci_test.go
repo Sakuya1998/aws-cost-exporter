@@ -162,6 +162,9 @@ func TestPagesWorkflowIsSafePinnedAndScoped(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"pull_request_target", "contents: write", "packages: write", "secrets.",
+		"11d5960a326750d5838078e36cf38b85af677262", "ece7cb06caefa5fff74198d8649806c4678c61a1",
+		"983d7736d9b0ae728b81ab479565c72886d7745b", "56afc609e74202658d3ffba0e8f6dda462b719fa",
+		"d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Errorf("Pages workflow contains forbidden fragment %q", forbidden)
