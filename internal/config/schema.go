@@ -9,7 +9,7 @@ const (
 	CredentialSourceStaticEnv    = "static_env"
 )
 
-// Config is the complete v0.3 application configuration.
+// Config is the stable v1 application configuration.
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server" yaml:"server"`
 	Log        LogConfig        `mapstructure:"log" yaml:"log"`
