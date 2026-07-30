@@ -414,6 +414,7 @@ func RunServices(ctx context.Context, runner schedulerService, server *httpserve
 		}
 		return err
 	case <-ctx.Done():
+		server.BeginShutdown()
 		cancel()
 		shutdownErr := server.Shutdown(context.Background())
 		waitForScheduler(schedulerDone, schedulerShutdownTimeout, logger, onSchedulerShutdownTimeout)

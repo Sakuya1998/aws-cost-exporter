@@ -10,6 +10,7 @@ import (
 	"net/http/pprof"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -36,6 +37,7 @@ var ErrInvalidConfig = errors.New("invalid HTTP server configuration")
 type Server struct {
 	server          *http.Server
 	shutdownTimeout time.Duration
+	draining        atomic.Bool
 }
 
 // New validates dependencies and constructs an isolated HTTP server.
@@ -60,10 +62,15 @@ func New(value config.ServerConfig, gatherer prometheus.Gatherer, reader Readine
 		Timeout: metricsTimeout, MaxRequestsInFlight: value.MaxInFlight,
 		EnableOpenMetrics: true,
 	}))
+	result := &Server{shutdownTimeout: value.ShutdownTimeout}
 	health := getOnly(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		writeJSON(response, request, http.StatusOK, statusResponse{Status: "ok"})
 	}))
 	ready := getOnly(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if result.draining.Load() {
+			writeJSON(response, request, http.StatusServiceUnavailable, statusResponse{Status: "not_ready", Reason: "shutting_down"})
+			return
+		}
 		code, payload := readiness(reader.Load(), ids)
 		writeJSON(response, request, code, payload)
 	}))
@@ -102,14 +109,12 @@ func New(value config.ServerConfig, gatherer prometheus.Gatherer, reader Readine
 		response.Header().Set("X-Content-Type-Options", "nosniff")
 		root.ServeHTTP(response, request)
 	})
-	return &Server{
-		server: &http.Server{
-			Addr: value.ListenAddress, Handler: handler,
-			ReadHeaderTimeout: value.ReadHeaderTimeout, ReadTimeout: value.ReadTimeout,
-			WriteTimeout: value.WriteTimeout, IdleTimeout: value.IdleTimeout,
-		},
-		shutdownTimeout: value.ShutdownTimeout,
-	}, nil
+	result.server = &http.Server{
+		Addr: value.ListenAddress, Handler: handler,
+		ReadHeaderTimeout: value.ReadHeaderTimeout, ReadTimeout: value.ReadTimeout,
+		WriteTimeout: value.WriteTimeout, IdleTimeout: value.IdleTimeout,
+	}
+	return result, nil
 }
 
 // Handler returns the isolated application handler for serving or testing.
@@ -120,6 +125,9 @@ func (server *Server) ListenAndServe() error { return server.server.ListenAndSer
 
 // Serve runs on an existing listener with the configured network timeouts.
 func (server *Server) Serve(listener net.Listener) error { return server.server.Serve(listener) }
+
+// BeginShutdown removes the process from readiness before work is canceled.
+func (server *Server) BeginShutdown() { server.draining.Store(true) }
 
 // Shutdown stops new connections and drains active requests to the deadline.
 func (server *Server) Shutdown(parent context.Context) error {

@@ -1,0 +1,132 @@
+{
+  "version": "v1.0.0",
+  "routes": [
+    {
+      "state": "missing",
+      "method": "GET",
+      "path": "/ready",
+      "status": 503,
+      "content_type": "application/json",
+      "body": "{\"status\":\"not_ready\",\"reason\":\"missing\"}\n"
+    },
+    {
+      "state": "ready",
+      "method": "GET",
+      "path": "/healthz",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"status\":\"ok\"}\n"
+    },
+    {
+      "state": "ready",
+      "method": "HEAD",
+      "path": "/healthz",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "state": "ready",
+      "method": "POST",
+      "path": "/healthz",
+      "status": 405,
+      "content_type": "text/plain; charset=utf-8",
+      "allow": "GET, HEAD",
+      "body": "Method Not Allowed\n"
+    },
+    {
+      "state": "ready",
+      "method": "GET",
+      "path": "/metrics",
+      "status": 200,
+      "content_type": "text/plain; version=0.0.4; charset=utf-8; escaping=underscores"
+    },
+    {
+      "state": "ready",
+      "method": "HEAD",
+      "path": "/metrics",
+      "status": 200,
+      "content_type": "text/plain; version=0.0.4; charset=utf-8; escaping=underscores"
+    },
+    {
+      "state": "ready",
+      "method": "POST",
+      "path": "/metrics",
+      "status": 405,
+      "content_type": "text/plain; charset=utf-8",
+      "allow": "GET, HEAD",
+      "body": "Method Not Allowed\n"
+    },
+    {
+      "state": "ready",
+      "method": "GET",
+      "path": "/missing",
+      "status": 404,
+      "content_type": "text/plain; charset=utf-8",
+      "body": "404 page not found\n"
+    },
+    {
+      "state": "ready",
+      "method": "GET",
+      "path": "/ready",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"status\":\"ready\"}\n"
+    },
+    {
+      "state": "ready",
+      "method": "HEAD",
+      "path": "/ready",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "state": "ready",
+      "method": "POST",
+      "path": "/ready",
+      "status": 405,
+      "content_type": "text/plain; charset=utf-8",
+      "allow": "GET, HEAD",
+      "body": "Method Not Allowed\n"
+    },
+    {
+      "state": "ready",
+      "method": "GET",
+      "path": "/version",
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"version\":\"v1.0.0\",\"revision\":\"contract\",\"buildDate\":\"2026-07-30T00:00:00Z\",\"goVersion\":\"go1.24.0\"}\n"
+    },
+    {
+      "state": "ready",
+      "method": "HEAD",
+      "path": "/version",
+      "status": 200,
+      "content_type": "application/json"
+    },
+    {
+      "state": "ready",
+      "method": "POST",
+      "path": "/version",
+      "status": 405,
+      "content_type": "text/plain; charset=utf-8",
+      "allow": "GET, HEAD",
+      "body": "Method Not Allowed\n"
+    },
+    {
+      "state": "shutting_down",
+      "method": "GET",
+      "path": "/ready",
+      "status": 503,
+      "content_type": "application/json",
+      "body": "{\"status\":\"not_ready\",\"reason\":\"shutting_down\"}\n"
+    },
+    {
+      "state": "stale",
+      "method": "GET",
+      "path": "/ready",
+      "status": 503,
+      "content_type": "application/json",
+      "body": "{\"status\":\"not_ready\",\"reason\":\"stale\"}\n"
+    }
+  ]
+}
