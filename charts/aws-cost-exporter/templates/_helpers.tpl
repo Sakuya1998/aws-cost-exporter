@@ -2,6 +2,21 @@
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{- define "aws-cost-exporter.validateDeploymentStrategy" -}}
+{{- if ne (int .Values.replicaCount) 1 -}}
+{{- fail "replicaCount must equal 1; coordinated multi-replica refresh is not supported" -}}
+{{- end -}}
+{{- if ne .Values.deploymentStrategy.type "RollingUpdate" -}}
+{{- fail "deploymentStrategy.type must equal RollingUpdate" -}}
+{{- end -}}
+{{- if ne (int .Values.deploymentStrategy.rollingUpdate.maxSurge) 0 -}}
+{{- fail "deploymentStrategy.rollingUpdate.maxSurge must equal 0" -}}
+{{- end -}}
+{{- if ne (int .Values.deploymentStrategy.rollingUpdate.maxUnavailable) 1 -}}
+{{- fail "deploymentStrategy.rollingUpdate.maxUnavailable must equal 1" -}}
+{{- end -}}
+{{- end }}
+
 {{- define "aws-cost-exporter.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}

@@ -74,7 +74,8 @@ func TestHelmLintAndDefaultTemplate(t *testing.T) {
 	for _, required := range []string{
 		"kind: Deployment", "kind: Service", "kind: ConfigMap",
 		"kind: ServiceAccount", "checksum/config:", "runAsNonRoot: true",
-		"path: /healthz", "path: /ready",
+		"path: /healthz", "path: /ready", "type: RollingUpdate",
+		"maxSurge: 0", "maxUnavailable: 1",
 	} {
 		if !strings.Contains(rendered, required) {
 			t.Errorf("rendered chart missing %q", required)
@@ -86,6 +87,26 @@ func TestHelmLintAndDefaultTemplate(t *testing.T) {
 	} {
 		if strings.Contains(rendered, forbidden) {
 			t.Errorf("default chart unexpectedly rendered %q", forbidden)
+		}
+	}
+}
+
+func TestDefaultDeploymentUsesNonOverlappingRollout(t *testing.T) {
+	helm := requireTool(t, "helm")
+	rendered := run(t, helm, "template", "e2e", chartPath(t))
+	for _, fragment := range []string{"replicas: 1", "type: RollingUpdate", "maxSurge: 0", "maxUnavailable: 1"} {
+		if !strings.Contains(rendered, fragment) {
+			t.Errorf("default deployment lacks %q", fragment)
+		}
+	}
+	for _, test := range []struct{ override, field string }{
+		{"replicaCount=2", "replicaCount"},
+		{"deploymentStrategy.rollingUpdate.maxSurge=1", "maxSurge"},
+		{"deploymentStrategy.rollingUpdate.maxUnavailable=0", "maxUnavailable"},
+	} {
+		output, err := exec.Command(helm, "template", "unsafe", chartPath(t), "--set", test.override).CombinedOutput()
+		if err == nil || !strings.Contains(string(output), test.field) {
+			t.Errorf("unsafe override %s: error=%v output=%s", test.override, err, output)
 		}
 	}
 }
