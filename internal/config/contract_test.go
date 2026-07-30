@@ -19,7 +19,7 @@ var updateContract = flag.Bool("update-contract", false, "rewrite the reviewed v
 
 type configFieldContract struct {
 	Path       string `json:"path"`
-	Kind       string `json:"kind"`
+	GoType     string `json:"go_type"`
 	Default    string `json:"default,omitempty"`
 	Collection bool   `json:"collection,omitempty"`
 }
@@ -125,7 +125,7 @@ func collectConfigurationFields(t *testing.T, valueType reflect.Type, defaults r
 		kind := field.Type.Kind()
 		*fields = append(*fields, configFieldContract{
 			Path:       path,
-			Kind:       kind.String(),
+			GoType:     field.Type.String(),
 			Default:    normalizeConfigurationDefault(t, fieldDefaults, hasDefaults),
 			Collection: kind == reflect.Array || kind == reflect.Map || kind == reflect.Slice,
 		})

@@ -12,632 +12,632 @@
   "fields": [
     {
       "path": "aws",
-      "kind": "struct"
+      "go_type": "config.AWSConfig"
     },
     {
       "path": "aws.credentials",
-      "kind": "struct"
+      "go_type": "config.CredentialsConfig"
     },
     {
       "path": "aws.credentials.sources",
-      "kind": "map",
+      "go_type": "map[string]config.CredentialSourceConfig",
       "default": "{}",
       "collection": true
     },
     {
       "path": "aws.credentials.sources.*.access_key_id_env",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.credentials.sources.*.profile",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.credentials.sources.*.secret_access_key_env",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.credentials.sources.*.session_token_env",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.credentials.sources.*.type",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.endpoints",
-      "kind": "struct"
+      "go_type": "config.EndpointsConfig"
     },
     {
       "path": "aws.endpoints.athena",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.endpoints.budgets",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.endpoints.cost_explorer",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.endpoints.organizations",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.endpoints.sts",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "aws.rate_limit",
-      "kind": "struct"
+      "go_type": "config.RateLimitConfig"
     },
     {
       "path": "aws.rate_limit.global_burst",
-      "kind": "int",
+      "go_type": "int",
       "default": "2"
     },
     {
       "path": "aws.rate_limit.global_requests_per_second",
-      "kind": "float64",
+      "go_type": "float64",
       "default": "1"
     },
     {
       "path": "aws.rate_limit.target_burst",
-      "kind": "int",
+      "go_type": "int",
       "default": "1"
     },
     {
       "path": "aws.rate_limit.target_requests_per_second",
-      "kind": "float64",
+      "go_type": "float64",
       "default": "0.5"
     },
     {
       "path": "aws.region",
-      "kind": "string",
+      "go_type": "string",
       "default": "us-east-1"
     },
     {
       "path": "aws.request_timeout",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "30s"
     },
     {
       "path": "aws.retry",
-      "kind": "struct"
+      "go_type": "config.RetryConfig"
     },
     {
       "path": "aws.retry.base_delay",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "1s"
     },
     {
       "path": "aws.retry.max_attempts",
-      "kind": "int",
+      "go_type": "int",
       "default": "5"
     },
     {
       "path": "aws.retry.max_backoff",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "30s"
     },
     {
       "path": "cache",
-      "kind": "struct"
+      "go_type": "config.CacheConfig"
     },
     {
       "path": "cache.freshness_ttl",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "12h0m0s"
     },
     {
       "path": "cache.stale_after",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "24h0m0s"
     },
     {
       "path": "collection",
-      "kind": "struct"
+      "go_type": "config.CollectionConfig"
     },
     {
       "path": "collection.anomalies",
-      "kind": "struct"
+      "go_type": "config.CollectionAnomaliesConfig"
     },
     {
       "path": "collection.anomalies.max_pages",
-      "kind": "int",
+      "go_type": "int",
       "default": "20"
     },
     {
       "path": "collection.anomalies.refresh_interval",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "6h0m0s"
     },
     {
       "path": "collection.anomalies.series_limit",
-      "kind": "int",
+      "go_type": "int",
       "default": "10"
     },
     {
       "path": "collection.budgets",
-      "kind": "struct"
+      "go_type": "config.CollectionBudgetsConfig"
     },
     {
       "path": "collection.budgets.max_pages",
-      "kind": "int",
+      "go_type": "int",
       "default": "20"
     },
     {
       "path": "collection.budgets.refresh_interval",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "6h0m0s"
     },
     {
       "path": "collection.budgets.series_limit",
-      "kind": "int",
+      "go_type": "int",
       "default": "100"
     },
     {
       "path": "collection.commitments",
-      "kind": "struct"
+      "go_type": "config.CollectionCommitmentsConfig"
     },
     {
       "path": "collection.commitments.max_pages",
-      "kind": "int",
+      "go_type": "int",
       "default": "20"
     },
     {
       "path": "collection.commitments.refresh_interval",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "24h0m0s"
     },
     {
       "path": "collection.commitments.series_limit",
-      "kind": "int",
+      "go_type": "int",
       "default": "20"
     },
     {
       "path": "collection.cost_explorer",
-      "kind": "struct"
+      "go_type": "config.CollectionCostExplorerConfig"
     },
     {
       "path": "collection.cost_explorer.collectors",
-      "kind": "struct"
+      "go_type": "config.CollectorsConfig"
     },
     {
       "path": "collection.cost_explorer.collectors.account",
-      "kind": "bool",
+      "go_type": "bool",
       "default": "true"
     },
     {
       "path": "collection.cost_explorer.collectors.forecast",
-      "kind": "bool",
+      "go_type": "bool",
       "default": "true"
     },
     {
       "path": "collection.cost_explorer.collectors.region",
-      "kind": "bool",
+      "go_type": "bool",
       "default": "true"
     },
     {
       "path": "collection.cost_explorer.collectors.service",
-      "kind": "bool",
+      "go_type": "bool",
       "default": "true"
     },
     {
       "path": "collection.cost_explorer.collectors.total",
-      "kind": "bool",
+      "go_type": "bool",
       "default": "true"
     },
     {
       "path": "collection.cost_explorer.cost_bases",
-      "kind": "slice",
+      "go_type": "[]string",
       "default": "[\"unblended\"]",
       "collection": true
     },
     {
       "path": "collection.cost_explorer.dimensions",
-      "kind": "struct"
+      "go_type": "config.DimensionsConfig"
     },
     {
       "path": "collection.cost_explorer.dimensions.overflow",
-      "kind": "string",
+      "go_type": "string",
       "default": "aggregate"
     },
     {
       "path": "collection.cost_explorer.dimensions.overflow_label",
-      "kind": "string",
+      "go_type": "string",
       "default": "__other__"
     },
     {
       "path": "collection.cost_explorer.dimensions.series_limit",
-      "kind": "int",
+      "go_type": "int",
       "default": "1000"
     },
     {
       "path": "collection.cost_explorer.max_pages",
-      "kind": "int",
+      "go_type": "int",
       "default": "50"
     },
     {
       "path": "collection.cost_explorer.prediction_interval",
-      "kind": "int",
+      "go_type": "int",
       "default": "80"
     },
     {
       "path": "collection.cur",
-      "kind": "struct"
+      "go_type": "config.CollectionCURConfig"
     },
     {
       "path": "collection.cur.max_currencies",
-      "kind": "int",
+      "go_type": "int",
       "default": "1"
     },
     {
       "path": "collection.cur.max_pages",
-      "kind": "int",
+      "go_type": "int",
       "default": "50"
     },
     {
       "path": "collection.cur.max_rows",
-      "kind": "int",
+      "go_type": "int",
       "default": "5000"
     },
     {
       "path": "collection.cur.refresh_interval",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "24h0m0s"
     },
     {
       "path": "collection.cur.series_limit",
-      "kind": "int",
+      "go_type": "int",
       "default": "2000"
     },
     {
       "path": "collection.failure_backoff",
-      "kind": "struct"
+      "go_type": "config.BackoffConfig"
     },
     {
       "path": "collection.failure_backoff.initial",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "1m0s"
     },
     {
       "path": "collection.failure_backoff.max",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "30m0s"
     },
     {
       "path": "collection.failure_backoff.max_attempts",
-      "kind": "int",
+      "go_type": "int",
       "default": "3"
     },
     {
       "path": "collection.failure_backoff.multiplier",
-      "kind": "float64",
+      "go_type": "float64",
       "default": "2"
     },
     {
       "path": "collection.jitter_ratio",
-      "kind": "float64",
+      "go_type": "float64",
       "default": "0.1"
     },
     {
       "path": "collection.max_concurrency",
-      "kind": "int",
+      "go_type": "int",
       "default": "4"
     },
     {
       "path": "collection.organizations",
-      "kind": "struct"
+      "go_type": "config.CollectionOrganizationsConfig"
     },
     {
       "path": "collection.organizations.max_pages",
-      "kind": "int",
+      "go_type": "int",
       "default": "20"
     },
     {
       "path": "collection.organizations.refresh_interval",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "24h0m0s"
     },
     {
       "path": "collection.organizations.series_limit",
-      "kind": "int",
+      "go_type": "int",
       "default": "1000"
     },
     {
       "path": "collection.refresh_interval",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "6h0m0s"
     },
     {
       "path": "collection.startup_refresh",
-      "kind": "bool",
+      "go_type": "bool",
       "default": "true"
     },
     {
       "path": "collection.tags",
-      "kind": "struct"
+      "go_type": "config.CollectionTagsConfig"
     },
     {
       "path": "collection.tags.max_pages",
-      "kind": "int",
+      "go_type": "int",
       "default": "50"
     },
     {
       "path": "collection.tags.refresh_interval",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "6h0m0s"
     },
     {
       "path": "collection.tags.series_limit",
-      "kind": "int",
+      "go_type": "int",
       "default": "500"
     },
     {
       "path": "log",
-      "kind": "struct"
+      "go_type": "config.LogConfig"
     },
     {
       "path": "log.add_source",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "log.format",
-      "kind": "string",
+      "go_type": "string",
       "default": "json"
     },
     {
       "path": "log.level",
-      "kind": "string",
+      "go_type": "string",
       "default": "info"
     },
     {
       "path": "server",
-      "kind": "struct"
+      "go_type": "config.ServerConfig"
     },
     {
       "path": "server.debug",
-      "kind": "struct"
+      "go_type": "config.DebugConfig"
     },
     {
       "path": "server.debug.enabled",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "server.idle_timeout",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "1m0s"
     },
     {
       "path": "server.listen_address",
-      "kind": "string",
+      "go_type": "string",
       "default": ":8080"
     },
     {
       "path": "server.max_in_flight",
-      "kind": "int",
+      "go_type": "int",
       "default": "20"
     },
     {
       "path": "server.metrics_path",
-      "kind": "string",
+      "go_type": "string",
       "default": "/metrics"
     },
     {
       "path": "server.read_header_timeout",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "5s"
     },
     {
       "path": "server.read_timeout",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "15s"
     },
     {
       "path": "server.shutdown_timeout",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "15s"
     },
     {
       "path": "server.write_timeout",
-      "kind": "int64",
+      "go_type": "time.Duration",
       "default": "30s"
     },
     {
       "path": "targets",
-      "kind": "slice",
+      "go_type": "[]config.TargetConfig",
       "default": "[]",
       "collection": true
     },
     {
       "path": "targets[].account_id",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].anomalies",
-      "kind": "struct"
+      "go_type": "config.TargetAnomaliesConfig"
     },
     {
       "path": "targets[].anomalies.enabled",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "targets[].budgets",
-      "kind": "struct"
+      "go_type": "config.TargetBudgetsConfig"
     },
     {
       "path": "targets[].budgets.enabled",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "targets[].budgets.names",
-      "kind": "slice",
+      "go_type": "[]string",
       "collection": true
     },
     {
       "path": "targets[].commitments",
-      "kind": "struct"
+      "go_type": "config.TargetCommitmentsConfig"
     },
     {
       "path": "targets[].commitments.enabled",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "targets[].cost_explorer",
-      "kind": "struct"
+      "go_type": "config.TargetCostExplorerConfig"
     },
     {
       "path": "targets[].cost_explorer.enabled",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "targets[].cost_explorer.filters",
-      "kind": "struct"
+      "go_type": "config.FiltersConfig"
     },
     {
       "path": "targets[].cost_explorer.filters.linked_account_ids",
-      "kind": "slice",
+      "go_type": "[]string",
       "collection": true
     },
     {
       "path": "targets[].cost_explorer.filters.regions",
-      "kind": "slice",
+      "go_type": "[]string",
       "collection": true
     },
     {
       "path": "targets[].cost_explorer.filters.services",
-      "kind": "slice",
+      "go_type": "[]string",
       "collection": true
     },
     {
       "path": "targets[].credentials",
-      "kind": "struct"
+      "go_type": "config.TargetCredentialsConfig"
     },
     {
       "path": "targets[].credentials.assume_role",
-      "kind": "ptr"
+      "go_type": "*config.AssumeRoleConfig"
     },
     {
       "path": "targets[].credentials.assume_role.external_id_env",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].credentials.assume_role.role_arn",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].credentials.assume_role.session_name",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].credentials.source",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].cur",
-      "kind": "struct"
+      "go_type": "config.TargetCURConfig"
     },
     {
       "path": "targets[].cur.database",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].cur.enabled",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "targets[].cur.output_location",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].cur.poll_interval",
-      "kind": "int64"
+      "go_type": "time.Duration"
     },
     {
       "path": "targets[].cur.query_timeout",
-      "kind": "int64"
+      "go_type": "time.Duration"
     },
     {
       "path": "targets[].cur.region",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].cur.table",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].cur.tag_columns",
-      "kind": "slice",
+      "go_type": "[]config.CURTagColumn",
       "collection": true
     },
     {
       "path": "targets[].cur.tag_columns[].column",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].cur.tag_columns[].key",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].cur.workgroup",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].name",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].organizations",
-      "kind": "struct"
+      "go_type": "config.TargetOrganizationsConfig"
     },
     {
       "path": "targets[].organizations.account_ids",
-      "kind": "slice",
+      "go_type": "[]string",
       "collection": true
     },
     {
       "path": "targets[].organizations.enabled",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "targets[].required",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "targets[].tags",
-      "kind": "struct"
+      "go_type": "config.TargetTagsConfig"
     },
     {
       "path": "targets[].tags.enabled",
-      "kind": "bool"
+      "go_type": "bool"
     },
     {
       "path": "targets[].tags.keys",
-      "kind": "slice",
+      "go_type": "[]config.TagKeyConfig",
       "collection": true
     },
     {
       "path": "targets[].tags.keys[].key",
-      "kind": "string"
+      "go_type": "string"
     },
     {
       "path": "targets[].tags.keys[].max_values",
-      "kind": "int"
+      "go_type": "int"
     },
     {
       "path": "telemetry",
-      "kind": "struct"
+      "go_type": "config.TelemetryConfig"
     },
     {
       "path": "telemetry.include_go_collector",
-      "kind": "bool",
+      "go_type": "bool",
       "default": "true"
     },
     {
       "path": "telemetry.include_process_collector",
-      "kind": "bool",
+      "go_type": "bool",
       "default": "true"
     }
   ]
