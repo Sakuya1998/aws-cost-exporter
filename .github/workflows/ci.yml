@@ -38,8 +38,10 @@ jobs:
           args: --timeout=5m
       - name: Security
         run: |
+          go install github.com/zricethezav/gitleaks/v8@v8.28.0
           go install golang.org/x/vuln/cmd/govulncheck@19b0bb6a272792b9afa8a6983c3e9b9a1816947f # v1.6.0
           go install github.com/securego/gosec/v2/cmd/gosec@v2.22.7
+          gitleaks git --redact --no-banner --exit-code 1
           govulncheck ./...
           gosec ./...
 

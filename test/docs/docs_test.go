@@ -1,9 +1,12 @@
 package docs_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -213,6 +216,101 @@ func TestV1SLODocumentsReferenceCapacityAndGrowthEvaluation(t *testing.T) {
 	} {
 		if !strings.Contains(content, fragment) {
 			t.Errorf("v1 SLO documentation lacks %q", fragment)
+		}
+	}
+}
+
+func TestV1ThreatModelAndSecurityResponseAreComplete(t *testing.T) {
+	threatModel := read(t, filepath.Join("..", "..", "docs", "security", "threat-model.md"))
+	for _, fragment := range []string{
+		"Assets", "Trust boundaries", "endpoint override", "signed requests", "configuration write access",
+		"/metrics", "financial telemetry", "Spoofing", "Tampering", "Repudiation", "Information disclosure",
+		"Denial of service", "Elevation of privilege", "Mitigations", "Residual risks", "Non-goals",
+	} {
+		if !strings.Contains(threatModel, fragment) {
+			t.Errorf("threat model lacks %q", fragment)
+		}
+	}
+	security := read(t, filepath.Join("..", "..", "SECURITY.md"))
+	for _, fragment := range []string{
+		"v1.x", "three business days", "seven business days", "coordinated disclosure",
+		"revoke", "replace", "release artifacts",
+	} {
+		if !strings.Contains(security, fragment) {
+			t.Errorf("SECURITY.md lacks %q", fragment)
+		}
+	}
+}
+
+func TestRepositoryTextContainsNoCredentialMaterial(t *testing.T) {
+	root := filepath.Join("..", "..")
+	patterns := map[string]*regexp.Regexp{
+		"AWS access key ID": regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
+		"private key":       regexp.MustCompile(`-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----`),
+		"shared credential": regexp.MustCompile(`(?im)^\s*aws_secret_access_key\s*=\s*[^\s#]+`),
+	}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", ".worktrees", "dist", "vendor":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if bytes.IndexByte(content, 0) >= 0 {
+			return nil
+		}
+		for name, pattern := range patterns {
+			if pattern.Match(content) {
+				t.Errorf("%s contains apparent %s", path, name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIAMWildcardResourcesAreLimitedToUnsupportedResourceScoping(t *testing.T) {
+	directory := filepath.Join("..", "..", "examples", "iam")
+	allowedWildcard := map[string]bool{
+		"mvp-readonly.json": true, "organizations-readonly.json": true, "commitments-anomalies-readonly.json": true,
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		var document policy
+		if err := json.Unmarshal([]byte(read(t, filepath.Join(directory, entry.Name()))), &document); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range document.Statement {
+			if item.Resource == nil {
+				continue
+			}
+			for _, resource := range stringValues(t, item.Resource) {
+				if resource == "*" && !allowedWildcard[entry.Name()] {
+					t.Errorf("%s %s uses avoidable wildcard resource", entry.Name(), item.Sid)
+				}
+			}
+		}
+	}
+	guidance := read(t, filepath.Join(directory, "README.md"))
+	for _, fragment := range []string{"Cost Explorer", "Organizations", "Resource: *", "does not support resource-level permissions", "sts:AssumeRole"} {
+		if !strings.Contains(guidance, fragment) {
+			t.Errorf("IAM guidance lacks %q", fragment)
 		}
 	}
 }

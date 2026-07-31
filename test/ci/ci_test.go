@@ -36,6 +36,7 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 		"gofmt -l", "goimports", "go vet ./...", "golangci-lint-action",
 		"version: v2.12.2",
 		"govulncheck", "gosec", "go test -race", "coverage < 79", "core coverage < 85%",
+		"github.com/zricethezav/gitleaks/v8@v8.28.0", "gitleaks git --redact --no-banner --exit-code 1",
 		"core-coverage.out", "./internal/domain/...", "./internal/cache/...", "./internal/scheduler/...",
 		"./internal/aws/common/...", "./internal/aws/clientfactory/...",
 		"./test/integration/...", "./test/e2e/...", "./test/perf/...",
@@ -51,7 +52,7 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 	for _, forbidden := range []string{
 		"contents: write", "packages: write", "id-token: write",
 		"go install github.com/prometheus/prometheus/cmd/promtool@",
-		"-update-contract",
+		"-update-contract", "pull_request_target",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Errorf("PR workflow grants forbidden permission %q", forbidden)
@@ -270,6 +271,23 @@ func TestStabilityWorkflowIsManualPinnedAndResourceBound(t *testing.T) {
 	for _, match := range uses {
 		if !sha.MatchString(match[1]) {
 			t.Errorf("stability action is not SHA pinned: %s", match[0])
+		}
+	}
+}
+
+func TestGitleaksAllowlistIsNarrowAndContentBased(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", ".gitleaks.toml"))
+	for _, fragment := range []string{
+		`condition = "AND"`, `regexTarget = "match"`, `^test/ci/ci_test\.go$`,
+		`must not expose AWS credentials", "TestV1StabilitySoak`,
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("gitleaks allowlist lacks %q", fragment)
+		}
+	}
+	for _, forbidden := range []string{"commits =", "stopwords =", "generic-api-key"} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("gitleaks allowlist is broader than the known false positive: %q", forbidden)
 		}
 	}
 }
