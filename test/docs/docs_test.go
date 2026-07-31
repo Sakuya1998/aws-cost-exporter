@@ -29,7 +29,7 @@ func TestREADMEIsStableLandingPage(t *testing.T) {
 	content := read(t, filepath.Join("..", "..", "README.md"))
 	for _, fragment := range []string{
 		"github.com/sakuya1998/aws-cost-exporter",
-		"v0.3.0",
+		"v1.0.0",
 		"ghcr.io/sakuya1998/aws-cost-exporter",
 		"oci://ghcr.io/sakuya1998/charts/aws-cost-exporter",
 		"make build", "docker compose up --build", "helm install",
@@ -44,21 +44,23 @@ func TestREADMEIsStableLandingPage(t *testing.T) {
 	}
 }
 
-func TestV1EntryPointsRemainInProgressUntilReleaseEvidenceExists(t *testing.T) {
+func TestV1EntryPointsPublishReleaseEvidence(t *testing.T) {
 	readme := read(t, filepath.Join("..", "..", "README.md"))
-	for _, fragment := range []string{"v1.0 stabilization is in progress", "docs/operations/v1-slo.md", "docs/releases/v1.0-checklist.md"} {
+	for _, fragment := range []string{"current stable release is **v1.0.0**", "docs/operations/v1-slo.md", "docs/releases/v1.0.0-verification.md"} {
 		if !strings.Contains(readme, fragment) {
 			t.Errorf("README lacks v1 entry point %q", fragment)
 		}
 	}
 	roadmap := read(t, filepath.Join("..", "..", "ROADMAP.md"))
-	for _, fragment := range []string{"## v1.0: Stable operational contract", "Status: in progress", "v1.0-checklist.md", "24-hour stability", "real AWS", "upgrade and rollback"} {
+	for _, fragment := range []string{"## v1.0: Stable operational contract", "Status: completed in v1.0.0", "v1.0.0-verification.md", "explicitly deferred by the maintainer", "24-hour stability", "real AWS", "upgrade and rollback"} {
 		if !strings.Contains(roadmap, fragment) {
 			t.Errorf("ROADMAP lacks v1 status %q", fragment)
 		}
 	}
-	if strings.Contains(roadmap, "Status: completed in v1.0.0") {
-		t.Error("ROADMAP marks v1.0 complete before release evidence exists")
+	for _, stale := range []string{"Status: in progress", "v1.0 stabilization is in progress"} {
+		if strings.Contains(readme+roadmap, stale) {
+			t.Errorf("current entry points retain stale release state %q", stale)
+		}
 	}
 	adr := read(t, filepath.Join("..", "..", "docs", "adr", "0002-ha-refresh-coordination.md"))
 	for _, fragment := range []string{"reaffirmed for v1.0", "maxSurge: 0", "maxUnavailable: 1", "cost-first", "temporary metrics outage"} {

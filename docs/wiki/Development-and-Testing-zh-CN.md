@@ -3,9 +3,9 @@
 # 开发与测试
 
 v1 增加版本化配置、指标与 HTTP Contract Fixture、85% 核心覆盖率门槛、gitleaks，
-以及确定性的 20 个 target/20,000 Series 容量测试。24 小时稳定性、脱敏真实 AWS
-最小权限验证和 v0.3.0 升级/回滚属于手工 Release Gate，不进入普通 PR CI。
-记录结果时不能包含 Account ID、成本、SQL 或凭证。
+以及确定性的 20 个 target/20,000 Series 容量测试。v1.0.0 的 24 小时稳定性、
+脱敏真实 AWS 最小权限验证和 v0.3.0 升级/回滚演练已由维护者明确延期，不能记为
+通过。后续记录结果时不能包含 Account ID、成本、SQL 或凭证。
 
 ## 环境
 

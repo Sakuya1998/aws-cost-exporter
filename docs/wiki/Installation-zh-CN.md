@@ -9,14 +9,14 @@ Readiness 无法恢复则执行 `helm rollback`。单副本不提供零停机升
 
 ## Release 产物
 
-从 [GitHub Release v0.3.0](https://github.com/Sakuya1998/aws-cost-exporter/releases/tag/v0.3.0) 下载归档和 checksum。Release 包含 Linux、Windows、macOS 的 amd64/arm64 归档、SPDX JSON SBOM 和 `checksums.txt`。
+从 [GitHub Release v1.0.0](https://github.com/Sakuya1998/aws-cost-exporter/releases/tag/v1.0.0) 下载归档和 checksum。Release 包含 Linux、Windows、macOS 的 amd64/arm64 归档、SPDX JSON SBOM 和 `checksums.txt`。
 
 ## 从源码构建
 
 ```bash
 git clone https://github.com/Sakuya1998/aws-cost-exporter.git
 cd aws-cost-exporter
-git checkout v0.3.0
+git checkout v1.0.0
 make build
 ./aws-cost-exporter --version
 ```
@@ -24,7 +24,7 @@ make build
 ## Docker
 
 ```bash
-docker pull ghcr.io/sakuya1998/aws-cost-exporter:0.3.0
+docker pull ghcr.io/sakuya1998/aws-cost-exporter:1.0.0
 docker compose up --build
 ```
 
@@ -35,7 +35,7 @@ docker compose up --build
 ```bash
 helm install aws-cost-exporter \
   oci://ghcr.io/sakuya1998/charts/aws-cost-exporter \
-  --version 0.3.0 \
+  --version 1.0.0 \
   --set config.data.targets[0].account_id=444455556666
 ```
 
@@ -43,4 +43,4 @@ helm install aws-cost-exporter \
 
 ## 验证 OCI 签名
 
-镜像和 Helm Chart 由 tag 触发的 Release workflow 进行 keyless 签名。请使用 [v0.3.0 验证记录](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v0.3.0-verification.md)中的精确 identity 与 issuer。需要不可变部署时固定已验证 digest。
+镜像和 Helm Chart 由 tag 触发的 Release workflow 进行 keyless 签名。请使用 [v1.0.0 验证记录](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0.0-verification.md)中的精确 identity、issuer 和 digest。需要不可变部署时固定已验证 digest。

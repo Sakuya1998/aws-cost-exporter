@@ -19,7 +19,7 @@ Context cancellation stops limiter waits, AWS requests, Athena polling, SDK retr
 
 ## Replica policy
 
-Keep Helm `replicaCount: 1`. v0.3.0 has no leader election, shared cache, or refresh ownership. Multiple replicas duplicate paid requests and appear as duplicate Prometheus scrape targets.
+Keep Helm `replicaCount: 1`. v1.0.0 has no leader election, shared cache, or refresh ownership. Multiple replicas duplicate paid requests and appear as duplicate Prometheus scrape targets.
 
 ## Cost Explorer cost
 

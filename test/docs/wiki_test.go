@@ -111,10 +111,10 @@ func TestWikiLinksReferenceManagedPages(t *testing.T) {
 	}
 }
 
-func TestWikiDocumentsCurrentV030Contracts(t *testing.T) {
+func TestWikiDocumentsCurrentV100Contracts(t *testing.T) {
 	configuration := read(t, wikiFile("Configuration-Reference.md"))
 	for _, fragment := range []string{
-		"v0.3.0", "server", "log", "aws", "targets", "collection", "cache", "telemetry",
+		"v1.0.0", "server", "log", "aws", "targets", "collection", "cache", "telemetry",
 		"--check-config", "AWS_COST_EXPORTER_SERVER__LISTEN_ADDRESS", "exact", "max_currencies",
 	} {
 		if !strings.Contains(configuration, fragment) {

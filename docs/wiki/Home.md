@@ -2,13 +2,13 @@
 
 # AWS Cost Exporter Wiki
 
-This Wiki documents the current stable release, **v0.3.0**.
+This Wiki documents the current stable release, **v1.0.0**.
 
-v1.0 stabilization is in progress and adds no collectors. It freezes the
-current configuration, metrics, and HTTP behavior as the v1 contract while
-adding machine-checked compatibility, lifecycle, capacity, security, and
-release gates. v0.3.0 remains the installable stable release until those gates
-produce real acceptance evidence.
+v1.0 adds no collectors. It freezes the configuration, metrics, and HTTP
+behavior as the v1 contract and adds machine-checked compatibility, lifecycle,
+capacity, security, and release evidence. See the
+[v1.0.0 verification record](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0.0-verification.md)
+for the verified artifacts and explicitly deferred operational exercises.
 
 AWS Cost Exporter turns low-frequency AWS billing data into stable, target-scoped Prometheus metrics. It is an exporter, not a financial reconciliation system. AWS remains the source of truth.
 

@@ -58,7 +58,7 @@ The wrapper is installed in the SDK attempt-token path, so initial requests and 
 - Querying AWS on scrape was rejected because it couples Prometheus to paid, paginated APIs.
 - Persistent local cache was deferred because Prometheus owns retention and persistence adds migration/encryption/HA concerns.
 - Dynamic Go plugins were rejected; collectors use compile-time registration and narrow ports.
-- v0.3.0 remains single-replica. See [ADR 0002](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/adr/0002-ha-refresh-coordination.md).
+- v1.0.0 remains single-replica. See [ADR 0002](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/adr/0002-ha-refresh-coordination.md).
 
 The authoritative decision records are in [`docs/adr`](https://github.com/Sakuya1998/aws-cost-exporter/tree/master/docs/adr).
 

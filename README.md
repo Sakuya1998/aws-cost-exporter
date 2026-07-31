@@ -2,9 +2,9 @@
 
 [github.com/sakuya1998/aws-cost-exporter](https://github.com/sakuya1998/aws-cost-exporter) exports cached AWS billing data as target-scoped Prometheus metrics. It is an exporter, not a financial reconciliation system.
 
-The current stable release is **v0.3.0**. It supports explicit multi-account targets, Cost Explorer, CUR 2.0 through Athena, Organizations, Budgets, Savings Plans and Reserved Instances summaries, Cost Anomaly Detection, and bounded tag costs. Prometheus does not call AWS during a Prometheus scrape; `/metrics` reads an immutable in-memory snapshot.
+The current stable release is **v1.0.0**. It supports explicit multi-account targets, Cost Explorer, CUR 2.0 through Athena, Organizations, Budgets, Savings Plans and Reserved Instances summaries, Cost Anomaly Detection, and bounded tag costs. Prometheus does not call AWS during a Prometheus scrape; `/metrics` reads an immutable in-memory snapshot.
 
-v1.0 stabilization is in progress on the existing v0.3 behavior; it does not add collectors. The work freezes public configuration, Prometheus, and HTTP contracts, documents the supported capacity and lifecycle, and strengthens security and release evidence. Track the [v1 SLO](docs/operations/v1-slo.md) and [v1.0 release checklist](docs/releases/v1.0-checklist.md). The current stable install commands remain v0.3.0 until all external release gates pass.
+v1.0 freezes the public configuration, Prometheus, and HTTP contracts without adding collectors. See the [v1 SLO](docs/operations/v1-slo.md), [release checklist](docs/releases/v1.0-checklist.md), and immutable [v1.0.0 verification record](docs/releases/v1.0.0-verification.md). The verification record distinguishes completed automated and supply-chain evidence from manual operational exercises explicitly deferred by the maintainer.
 
 ## Quick start
 
@@ -18,7 +18,7 @@ make build
 Container:
 
 ```bash
-docker pull ghcr.io/sakuya1998/aws-cost-exporter:0.3.0
+docker pull ghcr.io/sakuya1998/aws-cost-exporter:1.0.0
 docker compose up --build
 ```
 
@@ -27,7 +27,7 @@ Helm OCI chart:
 ```bash
 helm install aws-cost-exporter \
   oci://ghcr.io/sakuya1998/charts/aws-cost-exporter \
-  --version 0.3.0 \
+  --version 1.0.0 \
   --set config.data.targets[0].account_id=444455556666
 ```
 
