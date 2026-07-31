@@ -18,7 +18,6 @@ jobs:
       AWS_COST_EXPORTER_STABILITY: "1"
       AWS_COST_EXPORTER_STABILITY_DURATION: 24h
       AWS_COST_EXPORTER_STABILITY_INTERVAL: 15s
-      AWS_COST_EXPORTER_STABILITY_OUTPUT: ${{ runner.temp }}/v1-stability-result.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -56,6 +55,8 @@ jobs:
           go version
           uname -srvmo
       - name: Run 24-hour in-memory stability gate
+        env:
+          AWS_COST_EXPORTER_STABILITY_OUTPUT: ${{ runner.temp }}/v1-stability-result.json
         run: >-
           go test -count=1 -timeout=25h
           -ldflags "-X github.com/sakuya1998/aws-cost-exporter/internal/version.version=v1.0.0-rc

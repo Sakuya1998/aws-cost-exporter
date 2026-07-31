@@ -248,6 +248,43 @@ func TestStabilityWorkflowIsManualPinnedAndResourceBound(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
 		t.Fatalf("parse stability workflow: %v", err)
 	}
+	root, ok := document.(map[string]any)
+	if !ok {
+		t.Fatalf("stability workflow root has type %T", document)
+	}
+	jobs, ok := root["jobs"].(map[string]any)
+	if !ok {
+		t.Fatalf("stability workflow jobs has type %T", root["jobs"])
+	}
+	soak, ok := jobs["soak"].(map[string]any)
+	if !ok {
+		t.Fatalf("stability soak job has type %T", jobs["soak"])
+	}
+	jobEnv, ok := soak["env"].(map[string]any)
+	if !ok {
+		t.Fatalf("stability soak env has type %T", soak["env"])
+	}
+	if _, exists := jobEnv["AWS_COST_EXPORTER_STABILITY_OUTPUT"]; exists {
+		t.Error("runner.temp output path must not be evaluated in job-level env")
+	}
+	steps, ok := soak["steps"].([]any)
+	if !ok {
+		t.Fatalf("stability soak steps have type %T", soak["steps"])
+	}
+	var outputPath any
+	for _, rawStep := range steps {
+		step, stepOK := rawStep.(map[string]any)
+		if stepOK && step["name"] == "Run 24-hour in-memory stability gate" {
+			env, envOK := step["env"].(map[string]any)
+			if envOK {
+				outputPath = env["AWS_COST_EXPORTER_STABILITY_OUTPUT"]
+			}
+			break
+		}
+	}
+	if outputPath != "${{ runner.temp }}/v1-stability-result.json" {
+		t.Errorf("stability step output path=%v, want runner.temp", outputPath)
+	}
 	for _, fragment := range []string{
 		"workflow_dispatch:", "contents: read", "cancel-in-progress: false",
 		"runs-on: [self-hosted, linux, x64, aws-cost-exporter-stability]", "timeout-minutes: 1500",
