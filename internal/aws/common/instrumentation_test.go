@@ -96,15 +96,38 @@ type failingAttemptRetryer struct{ aws.NopRetryer }
 func (failingAttemptRetryer) GetAttemptToken(context.Context) (func(error) error, error) {
 	return nil, errors.New("underlying token failed")
 }
-func TestAttemptLimiterAndUnderlyingFailuresArePreserved(t *testing.T) {
+func TestAttemptLimiterCancellationStopsBeforeUnderlyingToken(t *testing.T) {
 	limiter := &countingLimiter{err: context.Canceled}
-	observer := retryObserver{Retryer: failingAttemptRetryer{}, limiter: limiter, observer: DiscardObserver{}}
+	underlying := &countingAttemptRetryer{err: errors.New("underlying token failed")}
+	observer := retryObserver{Retryer: underlying, limiter: limiter, observer: DiscardObserver{}}
 	if _, err := observer.GetAttemptToken(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("limiter=%v", err)
 	}
-	limiter.err = nil
+	if underlying.calls != 0 {
+		t.Fatalf("underlying token calls=%d, want 0", underlying.calls)
+	}
+}
+
+type countingAttemptRetryer struct {
+	aws.NopRetryer
+	calls int
+	err   error
+}
+
+func (value *countingAttemptRetryer) GetAttemptToken(context.Context) (func(error) error, error) {
+	value.calls++
+	return nil, value.err
+}
+
+func TestAttemptLimiterUnderlyingRetryTokenFailureIsReturned(t *testing.T) {
+	limiter := &countingLimiter{}
+	underlying := &countingAttemptRetryer{err: errors.New("underlying token failed")}
+	observer := retryObserver{Retryer: underlying, limiter: limiter, observer: DiscardObserver{}}
 	if _, err := observer.GetAttemptToken(context.Background()); err == nil || err.Error() != "underlying token failed" {
 		t.Fatalf("underlying=%v", err)
+	}
+	if limiter.calls != 1 || underlying.calls != 1 {
+		t.Fatalf("limiter=%d underlying=%d", limiter.calls, underlying.calls)
 	}
 }
 

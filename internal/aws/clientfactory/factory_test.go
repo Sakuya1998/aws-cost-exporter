@@ -88,6 +88,71 @@ func TestFactoryAssumeRoleUsesExternalIDAndCredentialCache(t *testing.T) {
 	}
 }
 
+func TestCredentialCachesAreIndependentPerAssumeRoleTarget(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "base-access")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "base-secret")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	var mu sync.Mutex
+	calls := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		account, accessKey := "111122223333", "assumed-access-a"
+		if strings.Contains(string(body), "444455556666") {
+			account, accessKey = "444455556666", "assumed-access-b"
+		}
+		mu.Lock()
+		calls[account]++
+		mu.Unlock()
+		writer.Header().Set("Content-Type", "text/xml")
+		_, _ = io.WriteString(writer, `<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleResult><Credentials><AccessKeyId>`+accessKey+`</AccessKeyId><SecretAccessKey>assumed-secret</SecretAccessKey><SessionToken>assumed-token</SessionToken><Expiration>2030-01-01T00:00:00Z</Expiration></Credentials><AssumedRoleUser><Arn>arn:aws:sts::`+account+`:assumed-role/exporter/session</Arn><AssumedRoleId>id:session</AssumedRoleId></AssumedRoleUser></AssumeRoleResult><ResponseMetadata><RequestId>request-id</RequestId></ResponseMetadata></AssumeRoleResponse>`)
+	}))
+	defer server.Close()
+
+	value := config.Default().AWS
+	value.Credentials.Sources = map[string]config.CredentialSourceConfig{"runtime": {Type: config.CredentialSourceDefaultChain}}
+	value.Endpoints.STS = server.URL
+	value.RequestTimeout = time.Second
+	value.Retry.MaxAttempts = 1
+	value.RateLimit.GlobalRequestsPerSecond = 100
+	value.RateLimit.GlobalBurst = 5
+	value.RateLimit.TargetRequestsPerSecond = 100
+	value.RateLimit.TargetBurst = 5
+	factory, err := New(context.Background(), value, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	targets := []struct {
+		name, account, accessKey string
+	}{
+		{"payer-a", "111122223333", "assumed-access-a"},
+		{"payer-b", "444455556666", "assumed-access-b"},
+	}
+	for _, target := range targets {
+		clients, err := factory.ForTarget(config.TargetConfig{
+			Name: target.name, AccountID: target.account,
+			Credentials: config.TargetCredentialsConfig{Source: "runtime", AssumeRole: &config.AssumeRoleConfig{RoleARN: "arn:aws:iam::" + target.account + ":role/exporter"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			credentials, err := clients.CostExplorer.Options().Credentials.Retrieve(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if credentials.AccessKeyID != target.accessKey {
+				t.Fatalf("target %s access key=%q, want %q", target.name, credentials.AccessKeyID, target.accessKey)
+			}
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls["111122223333"] != 1 || calls["444455556666"] != 1 {
+		t.Fatalf("AssumeRole calls=%v, want one independent retrieval per target", calls)
+	}
+}
+
 func TestFactoryLoadsIndependentProfileAndStaticSources(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "environment-access")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "environment-secret")

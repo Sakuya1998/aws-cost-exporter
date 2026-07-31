@@ -72,6 +72,11 @@ jobs:
           go test -covermode=atomic -coverprofile=coverage.out ./cmd/... ./internal/...
           coverage="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
           awk -v coverage="$coverage" 'BEGIN { if (coverage < 79) { print "coverage < 79%"; exit 1 } }'
+          go test -covermode=atomic -coverprofile=core-coverage.out \
+            ./internal/domain/... ./internal/cache/... ./internal/scheduler/... \
+            ./internal/aws/common/... ./internal/aws/clientfactory/...
+          core_coverage="$(go tool cover -func=core-coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
+          awk -v coverage="$core_coverage" 'BEGIN { if (coverage < 85) { print "core coverage < 85%"; exit 1 } }'
 
   assets:
     runs-on: ubuntu-latest

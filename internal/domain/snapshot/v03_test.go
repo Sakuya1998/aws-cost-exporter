@@ -42,3 +42,25 @@ func TestV03SnapshotTraversalValidationAndSeriesCount(t *testing.T) {
 		t.Fatal("accepted duplicate labels")
 	}
 }
+
+func TestSnapshotRejectsDuplicateProviderBasisAndTagIdentity(t *testing.T) {
+	target := identity.TargetID("payer")
+	money, _ := cost.NewMoney(1, "USD")
+	dimension, _ := cost.NewDimension(cost.DimensionTotal, "")
+	costs := []cost.Cost{
+		{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, Dimension: dimension, Amount: money},
+		{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisAmortized, Window: cost.WindowDaily, Dimension: dimension, Amount: money},
+	}
+	tags := []tagcost.Cost{
+		{Target: target, Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, TagKey: "Environment", TagValue: "prod", Amount: money},
+		{Target: target, Provider: cost.ProviderCURAthena, Basis: cost.BasisNet, Window: cost.WindowDaily, TagKey: "Environment", TagValue: "prod", Amount: money},
+	}
+	value := NewWithData(costs, nil, nil, nil, nil, nil, tags)
+	if err := value.ValidateUnique(); err == nil || err.Error() != "invalid aggregate snapshot: duplicate metric label set" {
+		t.Fatalf("ValidateUnique()=%v", err)
+	}
+	withoutDuplicateTag := NewWithData(costs, nil, nil, nil, nil, nil, tags[:1])
+	if err := withoutDuplicateTag.ValidateUnique(); err != nil {
+		t.Fatalf("distinct cost bases collided: %v", err)
+	}
+}
