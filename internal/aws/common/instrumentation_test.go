@@ -91,11 +91,6 @@ func TestWrappedRetryerObservesAuthorizedRetriesAndEveryAttempt(t *testing.T) {
 	}
 }
 
-type failingAttemptRetryer struct{ aws.NopRetryer }
-
-func (failingAttemptRetryer) GetAttemptToken(context.Context) (func(error) error, error) {
-	return nil, errors.New("underlying token failed")
-}
 func TestAttemptLimiterCancellationStopsBeforeUnderlyingToken(t *testing.T) {
 	limiter := &countingLimiter{err: context.Canceled}
 	underlying := &countingAttemptRetryer{err: errors.New("underlying token failed")}
