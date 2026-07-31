@@ -1,4 +1,5 @@
 {{- include "aws-cost-exporter.validatePort" . }}
+{{- include "aws-cost-exporter.validateDeploymentStrategy" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +8,8 @@ metadata:
     {{- include "aws-cost-exporter.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml .Values.deploymentStrategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "aws-cost-exporter.selectorLabels" . | nindent 6 }}

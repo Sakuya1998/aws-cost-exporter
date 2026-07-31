@@ -40,3 +40,25 @@ Athena charges by scanned bytes. Use CUR partitions, a dedicated workgroup, scan
 ## Freshness
 
 Cost Explorer and CUR update on different schedules. `cache.freshness_ttl` controls expected freshness and `cache.stale_after` controls readiness staleness. Never hide provider differences by summing them.
+
+## v1 capacity and SLO
+
+The supported reference workload is 20 targets and at least 20,000 business
+series on 2 vCPU and 512 MiB. The `/metrics` objective is p99 under 5 seconds
+with at least 99.9% successful scrapes during the manual 24-hour stability run.
+AWS and Athena latency are upstream exclusions because scrapes use only cached
+data. The release report also evaluates sustained heap, RSS, goroutine, and
+connection growth.
+
+## Upgrade, shutdown, and backup
+
+The chart fixes `replicaCount: 1`, `maxSurge: 0`, and `maxUnavailable: 1`.
+Upgrades are cost-first: they avoid overlapping paid requests and intentionally
+cause a temporary metrics outage until the new pod refreshes and becomes ready.
+Shutdown marks `/ready` unavailable with `shutting_down` before canceling
+collectors and draining HTTP.
+
+Snapshots are memory-only snapshots and are not a backup target. Back up the
+reviewed configuration and Secret references through the deployment platform;
+protect Prometheus storage for historical metrics. Rollback restores the prior
+binary and configuration but cannot restore an expired in-process snapshot.

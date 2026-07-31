@@ -8,7 +8,7 @@ LDFLAGS := -X $(MODULE_PATH)/internal/version.version=$(VERSION)
 LDFLAGS += -X $(MODULE_PATH)/internal/version.revision=$(REVISION)
 LDFLAGS += -X $(MODULE_PATH)/internal/version.buildDate=$(BUILD_DATE)
 
-.PHONY: build test lint clean
+.PHONY: build test contract lint clean
 
 # build compiles the exporter executable for the current platform.
 build:
@@ -17,6 +17,10 @@ build:
 # test runs every unit test in the module.
 test:
 	go test ./...
+
+# contract verifies the reviewed v1 public configuration, metrics, and HTTP baselines.
+contract:
+	go test -count=1 ./internal/config ./internal/metrics ./internal/httpserver ./test/contract/...
 
 # test-race runs the module tests with the race detector enabled.
 test-race:

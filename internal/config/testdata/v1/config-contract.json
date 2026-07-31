@@ -1,0 +1,644 @@
+{
+  "version": "v1.0.0",
+  "top_level": [
+    "server",
+    "log",
+    "aws",
+    "targets",
+    "collection",
+    "cache",
+    "telemetry"
+  ],
+  "fields": [
+    {
+      "path": "aws",
+      "go_type": "config.AWSConfig"
+    },
+    {
+      "path": "aws.credentials",
+      "go_type": "config.CredentialsConfig"
+    },
+    {
+      "path": "aws.credentials.sources",
+      "go_type": "map[string]config.CredentialSourceConfig",
+      "default": "{}",
+      "collection": true
+    },
+    {
+      "path": "aws.credentials.sources.*.access_key_id_env",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.credentials.sources.*.profile",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.credentials.sources.*.secret_access_key_env",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.credentials.sources.*.session_token_env",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.credentials.sources.*.type",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.endpoints",
+      "go_type": "config.EndpointsConfig"
+    },
+    {
+      "path": "aws.endpoints.athena",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.endpoints.budgets",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.endpoints.cost_explorer",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.endpoints.organizations",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.endpoints.sts",
+      "go_type": "string"
+    },
+    {
+      "path": "aws.rate_limit",
+      "go_type": "config.RateLimitConfig"
+    },
+    {
+      "path": "aws.rate_limit.global_burst",
+      "go_type": "int",
+      "default": "2"
+    },
+    {
+      "path": "aws.rate_limit.global_requests_per_second",
+      "go_type": "float64",
+      "default": "1"
+    },
+    {
+      "path": "aws.rate_limit.target_burst",
+      "go_type": "int",
+      "default": "1"
+    },
+    {
+      "path": "aws.rate_limit.target_requests_per_second",
+      "go_type": "float64",
+      "default": "0.5"
+    },
+    {
+      "path": "aws.region",
+      "go_type": "string",
+      "default": "us-east-1"
+    },
+    {
+      "path": "aws.request_timeout",
+      "go_type": "time.Duration",
+      "default": "30s"
+    },
+    {
+      "path": "aws.retry",
+      "go_type": "config.RetryConfig"
+    },
+    {
+      "path": "aws.retry.base_delay",
+      "go_type": "time.Duration",
+      "default": "1s"
+    },
+    {
+      "path": "aws.retry.max_attempts",
+      "go_type": "int",
+      "default": "5"
+    },
+    {
+      "path": "aws.retry.max_backoff",
+      "go_type": "time.Duration",
+      "default": "30s"
+    },
+    {
+      "path": "cache",
+      "go_type": "config.CacheConfig"
+    },
+    {
+      "path": "cache.freshness_ttl",
+      "go_type": "time.Duration",
+      "default": "12h0m0s"
+    },
+    {
+      "path": "cache.stale_after",
+      "go_type": "time.Duration",
+      "default": "24h0m0s"
+    },
+    {
+      "path": "collection",
+      "go_type": "config.CollectionConfig"
+    },
+    {
+      "path": "collection.anomalies",
+      "go_type": "config.CollectionAnomaliesConfig"
+    },
+    {
+      "path": "collection.anomalies.max_pages",
+      "go_type": "int",
+      "default": "20"
+    },
+    {
+      "path": "collection.anomalies.refresh_interval",
+      "go_type": "time.Duration",
+      "default": "6h0m0s"
+    },
+    {
+      "path": "collection.anomalies.series_limit",
+      "go_type": "int",
+      "default": "10"
+    },
+    {
+      "path": "collection.budgets",
+      "go_type": "config.CollectionBudgetsConfig"
+    },
+    {
+      "path": "collection.budgets.max_pages",
+      "go_type": "int",
+      "default": "20"
+    },
+    {
+      "path": "collection.budgets.refresh_interval",
+      "go_type": "time.Duration",
+      "default": "6h0m0s"
+    },
+    {
+      "path": "collection.budgets.series_limit",
+      "go_type": "int",
+      "default": "100"
+    },
+    {
+      "path": "collection.commitments",
+      "go_type": "config.CollectionCommitmentsConfig"
+    },
+    {
+      "path": "collection.commitments.max_pages",
+      "go_type": "int",
+      "default": "20"
+    },
+    {
+      "path": "collection.commitments.refresh_interval",
+      "go_type": "time.Duration",
+      "default": "24h0m0s"
+    },
+    {
+      "path": "collection.commitments.series_limit",
+      "go_type": "int",
+      "default": "20"
+    },
+    {
+      "path": "collection.cost_explorer",
+      "go_type": "config.CollectionCostExplorerConfig"
+    },
+    {
+      "path": "collection.cost_explorer.collectors",
+      "go_type": "config.CollectorsConfig"
+    },
+    {
+      "path": "collection.cost_explorer.collectors.account",
+      "go_type": "bool",
+      "default": "true"
+    },
+    {
+      "path": "collection.cost_explorer.collectors.forecast",
+      "go_type": "bool",
+      "default": "true"
+    },
+    {
+      "path": "collection.cost_explorer.collectors.region",
+      "go_type": "bool",
+      "default": "true"
+    },
+    {
+      "path": "collection.cost_explorer.collectors.service",
+      "go_type": "bool",
+      "default": "true"
+    },
+    {
+      "path": "collection.cost_explorer.collectors.total",
+      "go_type": "bool",
+      "default": "true"
+    },
+    {
+      "path": "collection.cost_explorer.cost_bases",
+      "go_type": "[]string",
+      "default": "[\"unblended\"]",
+      "collection": true
+    },
+    {
+      "path": "collection.cost_explorer.dimensions",
+      "go_type": "config.DimensionsConfig"
+    },
+    {
+      "path": "collection.cost_explorer.dimensions.overflow",
+      "go_type": "string",
+      "default": "aggregate"
+    },
+    {
+      "path": "collection.cost_explorer.dimensions.overflow_label",
+      "go_type": "string",
+      "default": "__other__"
+    },
+    {
+      "path": "collection.cost_explorer.dimensions.series_limit",
+      "go_type": "int",
+      "default": "1000"
+    },
+    {
+      "path": "collection.cost_explorer.max_pages",
+      "go_type": "int",
+      "default": "50"
+    },
+    {
+      "path": "collection.cost_explorer.prediction_interval",
+      "go_type": "int",
+      "default": "80"
+    },
+    {
+      "path": "collection.cur",
+      "go_type": "config.CollectionCURConfig"
+    },
+    {
+      "path": "collection.cur.max_currencies",
+      "go_type": "int",
+      "default": "1"
+    },
+    {
+      "path": "collection.cur.max_pages",
+      "go_type": "int",
+      "default": "50"
+    },
+    {
+      "path": "collection.cur.max_rows",
+      "go_type": "int",
+      "default": "5000"
+    },
+    {
+      "path": "collection.cur.refresh_interval",
+      "go_type": "time.Duration",
+      "default": "24h0m0s"
+    },
+    {
+      "path": "collection.cur.series_limit",
+      "go_type": "int",
+      "default": "2000"
+    },
+    {
+      "path": "collection.failure_backoff",
+      "go_type": "config.BackoffConfig"
+    },
+    {
+      "path": "collection.failure_backoff.initial",
+      "go_type": "time.Duration",
+      "default": "1m0s"
+    },
+    {
+      "path": "collection.failure_backoff.max",
+      "go_type": "time.Duration",
+      "default": "30m0s"
+    },
+    {
+      "path": "collection.failure_backoff.max_attempts",
+      "go_type": "int",
+      "default": "3"
+    },
+    {
+      "path": "collection.failure_backoff.multiplier",
+      "go_type": "float64",
+      "default": "2"
+    },
+    {
+      "path": "collection.jitter_ratio",
+      "go_type": "float64",
+      "default": "0.1"
+    },
+    {
+      "path": "collection.max_concurrency",
+      "go_type": "int",
+      "default": "4"
+    },
+    {
+      "path": "collection.organizations",
+      "go_type": "config.CollectionOrganizationsConfig"
+    },
+    {
+      "path": "collection.organizations.max_pages",
+      "go_type": "int",
+      "default": "20"
+    },
+    {
+      "path": "collection.organizations.refresh_interval",
+      "go_type": "time.Duration",
+      "default": "24h0m0s"
+    },
+    {
+      "path": "collection.organizations.series_limit",
+      "go_type": "int",
+      "default": "1000"
+    },
+    {
+      "path": "collection.refresh_interval",
+      "go_type": "time.Duration",
+      "default": "6h0m0s"
+    },
+    {
+      "path": "collection.startup_refresh",
+      "go_type": "bool",
+      "default": "true"
+    },
+    {
+      "path": "collection.tags",
+      "go_type": "config.CollectionTagsConfig"
+    },
+    {
+      "path": "collection.tags.max_pages",
+      "go_type": "int",
+      "default": "50"
+    },
+    {
+      "path": "collection.tags.refresh_interval",
+      "go_type": "time.Duration",
+      "default": "6h0m0s"
+    },
+    {
+      "path": "collection.tags.series_limit",
+      "go_type": "int",
+      "default": "500"
+    },
+    {
+      "path": "log",
+      "go_type": "config.LogConfig"
+    },
+    {
+      "path": "log.add_source",
+      "go_type": "bool"
+    },
+    {
+      "path": "log.format",
+      "go_type": "string",
+      "default": "json"
+    },
+    {
+      "path": "log.level",
+      "go_type": "string",
+      "default": "info"
+    },
+    {
+      "path": "server",
+      "go_type": "config.ServerConfig"
+    },
+    {
+      "path": "server.debug",
+      "go_type": "config.DebugConfig"
+    },
+    {
+      "path": "server.debug.enabled",
+      "go_type": "bool"
+    },
+    {
+      "path": "server.idle_timeout",
+      "go_type": "time.Duration",
+      "default": "1m0s"
+    },
+    {
+      "path": "server.listen_address",
+      "go_type": "string",
+      "default": ":8080"
+    },
+    {
+      "path": "server.max_in_flight",
+      "go_type": "int",
+      "default": "20"
+    },
+    {
+      "path": "server.metrics_path",
+      "go_type": "string",
+      "default": "/metrics"
+    },
+    {
+      "path": "server.read_header_timeout",
+      "go_type": "time.Duration",
+      "default": "5s"
+    },
+    {
+      "path": "server.read_timeout",
+      "go_type": "time.Duration",
+      "default": "15s"
+    },
+    {
+      "path": "server.shutdown_timeout",
+      "go_type": "time.Duration",
+      "default": "15s"
+    },
+    {
+      "path": "server.write_timeout",
+      "go_type": "time.Duration",
+      "default": "30s"
+    },
+    {
+      "path": "targets",
+      "go_type": "[]config.TargetConfig",
+      "default": "[]",
+      "collection": true
+    },
+    {
+      "path": "targets[].account_id",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].anomalies",
+      "go_type": "config.TargetAnomaliesConfig"
+    },
+    {
+      "path": "targets[].anomalies.enabled",
+      "go_type": "bool"
+    },
+    {
+      "path": "targets[].budgets",
+      "go_type": "config.TargetBudgetsConfig"
+    },
+    {
+      "path": "targets[].budgets.enabled",
+      "go_type": "bool"
+    },
+    {
+      "path": "targets[].budgets.names",
+      "go_type": "[]string",
+      "collection": true
+    },
+    {
+      "path": "targets[].commitments",
+      "go_type": "config.TargetCommitmentsConfig"
+    },
+    {
+      "path": "targets[].commitments.enabled",
+      "go_type": "bool"
+    },
+    {
+      "path": "targets[].cost_explorer",
+      "go_type": "config.TargetCostExplorerConfig"
+    },
+    {
+      "path": "targets[].cost_explorer.enabled",
+      "go_type": "bool"
+    },
+    {
+      "path": "targets[].cost_explorer.filters",
+      "go_type": "config.FiltersConfig"
+    },
+    {
+      "path": "targets[].cost_explorer.filters.linked_account_ids",
+      "go_type": "[]string",
+      "collection": true
+    },
+    {
+      "path": "targets[].cost_explorer.filters.regions",
+      "go_type": "[]string",
+      "collection": true
+    },
+    {
+      "path": "targets[].cost_explorer.filters.services",
+      "go_type": "[]string",
+      "collection": true
+    },
+    {
+      "path": "targets[].credentials",
+      "go_type": "config.TargetCredentialsConfig"
+    },
+    {
+      "path": "targets[].credentials.assume_role",
+      "go_type": "*config.AssumeRoleConfig"
+    },
+    {
+      "path": "targets[].credentials.assume_role.external_id_env",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].credentials.assume_role.role_arn",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].credentials.assume_role.session_name",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].credentials.source",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].cur",
+      "go_type": "config.TargetCURConfig"
+    },
+    {
+      "path": "targets[].cur.database",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].cur.enabled",
+      "go_type": "bool"
+    },
+    {
+      "path": "targets[].cur.output_location",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].cur.poll_interval",
+      "go_type": "time.Duration"
+    },
+    {
+      "path": "targets[].cur.query_timeout",
+      "go_type": "time.Duration"
+    },
+    {
+      "path": "targets[].cur.region",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].cur.table",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].cur.tag_columns",
+      "go_type": "[]config.CURTagColumn",
+      "collection": true
+    },
+    {
+      "path": "targets[].cur.tag_columns[].column",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].cur.tag_columns[].key",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].cur.workgroup",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].name",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].organizations",
+      "go_type": "config.TargetOrganizationsConfig"
+    },
+    {
+      "path": "targets[].organizations.account_ids",
+      "go_type": "[]string",
+      "collection": true
+    },
+    {
+      "path": "targets[].organizations.enabled",
+      "go_type": "bool"
+    },
+    {
+      "path": "targets[].required",
+      "go_type": "bool"
+    },
+    {
+      "path": "targets[].tags",
+      "go_type": "config.TargetTagsConfig"
+    },
+    {
+      "path": "targets[].tags.enabled",
+      "go_type": "bool"
+    },
+    {
+      "path": "targets[].tags.keys",
+      "go_type": "[]config.TagKeyConfig",
+      "collection": true
+    },
+    {
+      "path": "targets[].tags.keys[].key",
+      "go_type": "string"
+    },
+    {
+      "path": "targets[].tags.keys[].max_values",
+      "go_type": "int"
+    },
+    {
+      "path": "telemetry",
+      "go_type": "config.TelemetryConfig"
+    },
+    {
+      "path": "telemetry.include_go_collector",
+      "go_type": "bool",
+      "default": "true"
+    },
+    {
+      "path": "telemetry.include_process_collector",
+      "go_type": "bool",
+      "default": "true"
+    }
+  ]
+}

@@ -211,29 +211,70 @@ func TestRunnerFailureIsolationLoggingAndCancellation(t *testing.T) {
 	receive(t, done)
 }
 
-func TestRunnerStopsCanceledCollectorAndClearsState(t *testing.T) {
-	started := make(chan struct{})
+func TestRunnerShutdownClearsEveryTargetSingleFlightState(t *testing.T) {
+	started := make(chan identity.CollectorID, 2)
 	observer := newFakeObserver()
-	collector := newCollector("a", "total", func(ctx context.Context, _ time.Time) (snapshot.PartialSnapshot, error) {
-		close(started)
-		<-ctx.Done()
-		return snapshot.PartialSnapshot{}, ctx.Err()
-	})
-	runner, _ := NewJobs([]Job{{Collector: collector, Interval: time.Hour, StartupRefresh: true}}, newFakeStore(), newFakeClock(), nil, Config{MaxConcurrency: 1, Backoff: BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer})
+	makeCollector := func(target string) *fakeCollector {
+		return newCollector(target, "total", func(ctx context.Context, _ time.Time) (snapshot.PartialSnapshot, error) {
+			started <- id(target, "total")
+			<-ctx.Done()
+			return snapshot.PartialSnapshot{}, ctx.Err()
+		})
+	}
+	a, b := makeCollector("a"), makeCollector("b")
+	runner, _ := NewJobs([]Job{{Collector: a, Interval: time.Hour, StartupRefresh: true}, {Collector: b, Interval: time.Hour, StartupRefresh: true}}, newFakeStore(), newFakeClock(), nil, Config{MaxConcurrency: 2, Backoff: BackoffConfig{MaxAttempts: 3, Initial: time.Minute, Max: time.Minute, Multiplier: 2}, Observer: observer})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { runner.Run(ctx); close(done) }()
 	receive(t, started)
+	receive(t, started)
 	cancel()
-	if event := receive(t, observer.refresh); event.status != "canceled" {
-		t.Fatalf("refresh=%#v", event)
+	for range 2 {
+		if event := receive(t, observer.refresh); event.status != "canceled" {
+			t.Fatalf("refresh=%#v", event)
+		}
 	}
 	receive(t, done)
 	runner.runningMu.Lock()
-	running := runner.running[collector.ID()]
+	running := len(runner.running)
 	runner.runningMu.Unlock()
-	if running {
-		t.Fatal("running state leaked")
+	if running != 0 || len(runner.semaphore) != 0 || len(runner.targets["a"]) != 0 || len(runner.targets["b"]) != 0 {
+		t.Fatalf("scheduler state leaked: running=%d semaphore=%d target-a=%d target-b=%d", running, len(runner.semaphore), len(runner.targets["a"]), len(runner.targets["b"]))
+	}
+}
+
+func TestRunnerCancellationStopsBackoffTimerAndWorker(t *testing.T) {
+	clock := newFakeClock()
+	calls := make(chan struct{}, 1)
+	collector := newCollector("a", "total", func(context.Context, time.Time) (snapshot.PartialSnapshot, error) {
+		calls <- struct{}{}
+		return snapshot.PartialSnapshot{}, retryableTestError{}
+	})
+	config := validSchedulerConfig()
+	config.JitterRatio = 0
+	runner, _ := NewJobs([]Job{{Collector: collector, Interval: time.Hour, StartupRefresh: true}}, newFakeStore(), clock, nil, config)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { runner.Run(ctx); close(done) }()
+	receive(t, calls)
+	var backoff fakeTimer
+	for range 2 {
+		timer := receive(t, clock.timers)
+		if timer.delay == time.Minute {
+			backoff = timer
+		}
+	}
+	if backoff.stopped == nil {
+		t.Fatal("missing retry backoff timer")
+	}
+	cancel()
+	receive(t, backoff.stopped)
+	receive(t, done)
+	runner.runningMu.Lock()
+	running := len(runner.running)
+	runner.runningMu.Unlock()
+	if running != 0 {
+		t.Fatalf("running state leaked after backoff cancellation: %d", running)
 	}
 }
 
@@ -311,8 +352,9 @@ func (value *fakeStore) Publish(id identity.CollectorID, _ snapshot.PartialSnaps
 func (value *fakeStore) RecordFailure(id identity.CollectorID) error { value.failed <- id; return nil }
 
 type fakeTimer struct {
-	delay time.Duration
-	fire  chan time.Time
+	delay   time.Duration
+	fire    chan time.Time
+	stopped chan struct{}
 }
 type fakeClock struct {
 	now    time.Time
@@ -325,14 +367,21 @@ func newFakeClock() *fakeClock {
 func (value *fakeClock) Now() time.Time { return value.now }
 func (value *fakeClock) NewTimer(delay time.Duration) Timer {
 	fire := make(chan time.Time, 1)
-	value.timers <- fakeTimer{delay: delay, fire: fire}
-	return &fakeSchedTimer{fire: fire}
+	stopped := make(chan struct{})
+	timer := &fakeSchedTimer{fire: fire, stopped: stopped}
+	value.timers <- fakeTimer{delay: delay, fire: fire, stopped: stopped}
+	return timer
 }
 
-type fakeSchedTimer struct{ fire chan time.Time }
+type fakeSchedTimer struct {
+	fire    chan time.Time
+	stopped chan struct{}
+	once    sync.Once
+}
 
 func (value *fakeSchedTimer) Chan() <-chan time.Time { return value.fire }
 func (value *fakeSchedTimer) Stop() bool {
+	value.once.Do(func() { close(value.stopped) })
 	select {
 	case <-value.fire:
 	default:

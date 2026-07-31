@@ -16,11 +16,29 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
 		t.Fatalf("parse CI workflow: %v", err)
 	}
+	root, ok := document.(map[string]any)
+	if !ok {
+		t.Fatalf("CI workflow root has type %T", document)
+	}
+	jobs, ok := root["jobs"].(map[string]any)
+	if !ok {
+		t.Fatalf("CI workflow jobs has type %T", root["jobs"])
+	}
+	assetsYAML, err := yaml.Marshal(jobs["assets"])
+	if err != nil {
+		t.Fatalf("marshal CI assets job: %v", err)
+	}
+	if !strings.Contains(string(assetsYAML), "./test/contract/...") {
+		t.Error("CI assets job does not run ./test/contract/...")
+	}
 	for _, fragment := range []string{
 		"pull_request:", "branches: [master]", "contents: read", "go-version: [\"1.24.x\", stable]",
 		"gofmt -l", "goimports", "go vet ./...", "golangci-lint-action",
 		"version: v2.12.2",
-		"govulncheck", "gosec", "go test -race", "coverage < 79",
+		"govulncheck", "gosec", "go test -race", "coverage < 79", "core coverage < 85%",
+		"github.com/zricethezav/gitleaks/v8@v8.28.0", "gitleaks git --redact --no-banner --exit-code 1",
+		"core-coverage.out", "./internal/domain/...", "./internal/cache/...", "./internal/scheduler/...",
+		"./internal/aws/common/...", "./internal/aws/clientfactory/...",
 		"./test/integration/...", "./test/e2e/...", "./test/perf/...",
 		"./test/chart/...", "./test/dashboard/...", "./test/rules/...",
 		"./test/docs/...", "./test/release/...",
@@ -34,6 +52,7 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 	for _, forbidden := range []string{
 		"contents: write", "packages: write", "id-token: write",
 		"go install github.com/prometheus/prometheus/cmd/promtool@",
+		"-update-contract", "pull_request_target",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Errorf("PR workflow grants forbidden permission %q", forbidden)
@@ -48,6 +67,18 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 		if !sha.MatchString(match[1]) {
 			t.Errorf("action is not SHA pinned: %s", match[0])
 		}
+	}
+}
+
+func TestMakefileExposesReviewedContractCheck(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", "Makefile"))
+	phony := regexp.MustCompile(`(?m)^\.PHONY:.*\bcontract\b`)
+	if !phony.MatchString(content) {
+		t.Error("Makefile .PHONY does not include contract")
+	}
+	contract := regexp.MustCompile(`(?m)^contract:\r?\n\tgo test -count=1 ./internal/config ./internal/metrics ./internal/httpserver ./test/contract/\.\.\.$`)
+	if !contract.MatchString(content) {
+		t.Error("Makefile contract target does not run the reviewed contract suites")
 	}
 }
 
@@ -207,6 +238,93 @@ func TestPagesMkDocsConfigurationUsesGeneratedWikiSource(t *testing.T) {
 	for _, dependency := range []string{"mkdocs==1.6.1", "mkdocs-material==9.7.7"} {
 		if !strings.Contains(requirements, dependency) {
 			t.Errorf("documentation requirements lack %q", dependency)
+		}
+	}
+}
+
+func TestStabilityWorkflowIsManualPinnedAndResourceBound(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", ".github", "workflows", "stability.yml"))
+	var document any
+	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
+		t.Fatalf("parse stability workflow: %v", err)
+	}
+	root, ok := document.(map[string]any)
+	if !ok {
+		t.Fatalf("stability workflow root has type %T", document)
+	}
+	jobs, ok := root["jobs"].(map[string]any)
+	if !ok {
+		t.Fatalf("stability workflow jobs has type %T", root["jobs"])
+	}
+	soak, ok := jobs["soak"].(map[string]any)
+	if !ok {
+		t.Fatalf("stability soak job has type %T", jobs["soak"])
+	}
+	jobEnv, ok := soak["env"].(map[string]any)
+	if !ok {
+		t.Fatalf("stability soak env has type %T", soak["env"])
+	}
+	if _, exists := jobEnv["AWS_COST_EXPORTER_STABILITY_OUTPUT"]; exists {
+		t.Error("runner.temp output path must not be evaluated in job-level env")
+	}
+	steps, ok := soak["steps"].([]any)
+	if !ok {
+		t.Fatalf("stability soak steps have type %T", soak["steps"])
+	}
+	var outputPath any
+	for _, rawStep := range steps {
+		step, stepOK := rawStep.(map[string]any)
+		if stepOK && step["name"] == "Run 24-hour in-memory stability gate" {
+			env, envOK := step["env"].(map[string]any)
+			if envOK {
+				outputPath = env["AWS_COST_EXPORTER_STABILITY_OUTPUT"]
+			}
+			break
+		}
+	}
+	if outputPath != "${{ runner.temp }}/v1-stability-result.json" {
+		t.Errorf("stability step output path=%v, want runner.temp", outputPath)
+	}
+	for _, fragment := range []string{
+		"workflow_dispatch:", "contents: read", "cancel-in-progress: false",
+		"runs-on: [self-hosted, linux, x64, aws-cost-exporter-stability]", "timeout-minutes: 1500",
+		"AWS_COST_EXPORTER_STABILITY_DURATION: 24h", "nproc", "536870912",
+		"must not expose AWS credentials", "TestV1StabilitySoak", "actions/upload-artifact@",
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("stability workflow lacks %q", fragment)
+		}
+	}
+	for _, forbidden := range []string{"pull_request:", "pull_request_target", "push:", "contents: write", "packages: write", "id-token: write"} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("stability workflow contains forbidden fragment %q", forbidden)
+		}
+	}
+	uses := regexp.MustCompile(`uses:\s*[\w./-]+@([^\s#]+)`).FindAllStringSubmatch(content, -1)
+	sha := regexp.MustCompile(`^[0-9a-f]{40}$`)
+	if len(uses) != 3 {
+		t.Fatalf("stability workflow has %d actions, want 3", len(uses))
+	}
+	for _, match := range uses {
+		if !sha.MatchString(match[1]) {
+			t.Errorf("stability action is not SHA pinned: %s", match[0])
+		}
+	}
+}
+
+func TestGitleaksAllowlistIsNarrowAndContentBased(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", ".gitleaks.toml"))
+	for _, fragment := range []string{
+		`condition = "AND"`, `regexTarget = "match"`, `^test/ci/ci_test\.go$`,
+		`must not expose AWS credentials", "TestV1StabilitySoak`,
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("gitleaks allowlist lacks %q", fragment)
+		}
+	}
+	for _, forbidden := range []string{"commits =", "stopwords =", "generic-api-key"} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("gitleaks allowlist is broader than the known false positive: %q", forbidden)
 		}
 	}
 }

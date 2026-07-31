@@ -46,23 +46,27 @@ func TestStorePublishesTargetScopedAtomicSnapshots(t *testing.T) {
 	}
 }
 
-func TestStoreFailureRetainsOnlyAffectedTargetData(t *testing.T) {
+func TestStoreFailureRetainsOnlyFailedCollectorPartial(t *testing.T) {
 	clock := &fakeClock{now: time.Now().UTC()}
 	store, _ := New(clock, time.Hour, 2*time.Hour)
-	a, b := collectorID("a", "total"), collectorID("b", "total")
-	_ = store.Publish(a, partialCost("a", 1, cost.DimensionTotal, ""))
-	_ = store.Publish(b, partialCost("b", 2, cost.DimensionTotal, ""))
+	total, service := collectorID("a", "total"), collectorID("a", "service")
+	_ = store.Publish(total, partialCost("a", 1, cost.DimensionTotal, ""))
+	_ = store.Publish(service, partialCost("a", 2, cost.DimensionService, "EC2"))
 	clock.Advance(time.Minute)
-	if err := store.RecordFailure(a); err != nil {
+	if err := store.RecordFailure(total); err != nil {
 		t.Fatal(err)
 	}
 	view := store.Load()
-	if view.Collectors[a].Up || !view.Collectors[b].Up || len(view.Snapshot.Costs()) != 2 {
+	if view.Collectors[total].Up || !view.Collectors[service].Up || len(view.Snapshot.Costs()) != 2 {
 		t.Fatalf("isolated failure=%#v", view)
 	}
-	_ = store.Publish(a, partialCost("a", 3, cost.DimensionTotal, ""))
+	_ = store.Publish(total, partialCost("a", 3, cost.DimensionTotal, ""))
 	values := store.Snapshot().Costs()
-	if len(values) != 2 || values[0].Amount.Amount() != 3 {
+	amounts := make(map[cost.DimensionKind]float64, len(values))
+	for _, value := range values {
+		amounts[value.Dimension.Kind()] = value.Amount.Amount()
+	}
+	if len(values) != 2 || amounts[cost.DimensionTotal] != 3 || amounts[cost.DimensionService] != 2 {
 		t.Fatalf("replacement=%#v", values)
 	}
 }
@@ -95,7 +99,7 @@ func TestStoreFiltersOrganizationsByObservedOrAllowlist(t *testing.T) {
 	}
 }
 
-func TestStoreConcurrentReadersNeverObservePartialPublish(t *testing.T) {
+func TestStoreReadersObserveOldOrNewAggregateNeverMixed(t *testing.T) {
 	store, _ := New(&fakeClock{now: time.Now()}, time.Hour, 2*time.Hour)
 	var wait sync.WaitGroup
 	wait.Add(3)
@@ -111,10 +115,19 @@ func TestStoreConcurrentReadersNeverObservePartialPublish(t *testing.T) {
 	go func() {
 		defer wait.Done()
 		for i := 0; i < 300; i++ {
-			length := len(store.Snapshot().Costs())
+			values := store.Snapshot().Costs()
+			length := len(values)
 			if length != 0 && length != 2 && length != 4 {
 				t.Errorf("partial length %d", length)
 				return
+			}
+			amounts := make(map[identity.TargetID]float64, 2)
+			for _, value := range values {
+				if amount, exists := amounts[value.Target]; exists && amount != value.Amount.Amount() {
+					t.Errorf("mixed aggregate for %s: %v", value.Target, values)
+					return
+				}
+				amounts[value.Target] = value.Amount.Amount()
 			}
 		}
 	}()

@@ -4,6 +4,13 @@
 
 This page documents the exact v0.3.0 schema. The loader uses exact unmarshal: unknown, misspelled, deprecated, and legacy keys are rejected.
 
+At v1.0.0 release this exact schema becomes the stable contract. The project
+guarantees v1.x backward compatibility: patch and minor releases do not remove
+or reinterpret accepted keys, defaults, enum values, or validation behavior.
+Additive optional configuration may appear in a minor release. A deprecation is
+documented for the latest two minor releases and at least six months before
+removal in a future major release. There is no silent migration parser.
+
 ## Top-level keys
 
 ```text

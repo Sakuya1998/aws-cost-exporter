@@ -1,0 +1,72 @@
+name: Stability
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: stability-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: [self-hosted, linux, x64, aws-cost-exporter-stability]
+    timeout-minutes: 1500
+    env:
+      AWS_COST_EXPORTER_STABILITY: "1"
+      AWS_COST_EXPORTER_STABILITY_DURATION: 24h
+      AWS_COST_EXPORTER_STABILITY_INTERVAL: 15s
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Verify isolated reference runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpu_count="$(nproc)"
+          if [ "$cpu_count" -ne 2 ]; then
+            echo "stability runner must expose exactly 2 logical CPUs; got $cpu_count"
+            exit 1
+          fi
+          memory_file=/sys/fs/cgroup/memory.max
+          if [ ! -f "$memory_file" ]; then
+            memory_file=/sys/fs/cgroup/memory/memory.limit_in_bytes
+          fi
+          if [ ! -f "$memory_file" ]; then
+            echo "stability runner has no detectable cgroup memory limit"
+            exit 1
+          fi
+          memory_limit="$(cat "$memory_file")"
+          if [ "$memory_limit" = max ] || [ "$memory_limit" -gt 536870912 ]; then
+            echo "stability runner memory limit must be at most 512 MiB; got $memory_limit"
+            exit 1
+          fi
+          if env | cut -d= -f1 | grep -Eq '^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|PROFILE|WEB_IDENTITY_TOKEN_FILE|CONTAINER_CREDENTIALS_RELATIVE_URI|CONTAINER_CREDENTIALS_FULL_URI)$'; then
+            echo "stability runner must not expose AWS credentials"
+            exit 1
+          fi
+          echo "AWS_COST_EXPORTER_STABILITY_MEMORY_LIMIT_BYTES=$memory_limit" >> "$GITHUB_ENV"
+          echo "AWS_COST_EXPORTER_STABILITY_KERNEL=$(uname -srvmo)" >> "$GITHUB_ENV"
+          go version
+          uname -srvmo
+      - name: Run 24-hour in-memory stability gate
+        env:
+          AWS_COST_EXPORTER_STABILITY_OUTPUT: ${{ runner.temp }}/v1-stability-result.json
+        run: >-
+          go test -count=1 -timeout=25h
+          -ldflags "-X github.com/sakuya1998/aws-cost-exporter/internal/version.version=v1.0.0-rc
+          -X github.com/sakuya1998/aws-cost-exporter/internal/version.revision=${GITHUB_SHA}"
+          ./test/perf -run '^TestV1StabilitySoak$' -v
+      - name: Upload sanitized stability result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: v1-stability-${{ github.sha }}
+          path: ${{ runner.temp }}/v1-stability-result.json
+          if-no-files-found: error
+          retention-days: 30

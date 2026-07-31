@@ -4,6 +4,12 @@
 
 This Wiki documents the current stable release, **v0.3.0**.
 
+v1.0 stabilization is in progress and adds no collectors. It freezes the
+current configuration, metrics, and HTTP behavior as the v1 contract while
+adding machine-checked compatibility, lifecycle, capacity, security, and
+release gates. v0.3.0 remains the installable stable release until those gates
+produce real acceptance evidence.
+
 AWS Cost Exporter turns low-frequency AWS billing data into stable, target-scoped Prometheus metrics. It is an exporter, not a financial reconciliation system. AWS remains the source of truth.
 
 ## What it supports
@@ -29,4 +35,6 @@ A failed refresh keeps the last successful data for that target and collector. O
 4. Validate configuration with `--check-config`.
 5. Import the dashboard and alert rules after the first successful refresh.
 
-Use one replica unless duplicate AWS and Athena requests are intentional; v0.3.0 has no leader election or shared cache.
+Use one replica unless duplicate AWS and Athena requests are intentional. The
+v1 contract keeps `replicaCount: 1`, memory-only snapshots, and no leader
+election or shared cache.

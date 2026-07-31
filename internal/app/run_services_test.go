@@ -5,6 +5,8 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +26,18 @@ type blockingScheduler struct{}
 func (blockingScheduler) Run(ctx context.Context) {
 	<-ctx.Done()
 	time.Sleep(2 * time.Second)
+}
+
+type readinessOnCancelScheduler struct {
+	handler http.Handler
+	result  chan string
+}
+
+func (scheduler readinessOnCancelScheduler) Run(ctx context.Context) {
+	<-ctx.Done()
+	response := httptest.NewRecorder()
+	scheduler.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	scheduler.result <- response.Body.String()
 }
 
 type staticReader struct{}
@@ -131,5 +145,36 @@ func TestRunServicesInvokesShutdownTimeoutCallback(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("RunServices did not return before test timeout")
+	}
+}
+
+func TestRunServicesMarksNotReadyBeforeCancelingScheduler(t *testing.T) {
+	value := config.Default()
+	value.Server.ShutdownTimeout = time.Second
+	server, err := httpserver.New(value.Server, prometheus.NewRegistry(), staticReader{}, []identity.CollectorID{{Target: "payer", Name: "total"}}, version.Info{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan string, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- app.RunServices(ctx, readinessOnCancelScheduler{handler: server.Handler(), result: result}, server, listener, time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	}()
+	cancel()
+	select {
+	case body := <-result:
+		if !strings.Contains(body, `"reason":"shutting_down"`) {
+			t.Fatalf("scheduler observed readiness body %q", body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not observe cancellation")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

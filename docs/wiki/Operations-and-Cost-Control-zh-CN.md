@@ -2,6 +2,24 @@
 
 # 运行与成本控制
 
+## v1 容量与 SLO
+
+支持的参考负载是在 2 vCPU、512 MiB 上运行 20 个 target 和至少 20,000
+条业务 Series。手工 24 小时稳定性运行要求 `/metrics` p99 小于 5 秒，成功率
+至少 99.9%。AWS 与 Athena 延迟属于上游排除项，因为 Scrape 只读取缓存。
+Release 报告还会判断 Heap、RSS、Goroutine 和连接是否持续增长。
+
+## 升级、关闭与备份
+
+Chart 固定 `replicaCount: 1`、`maxSurge: 0` 和 `maxUnavailable: 1`。
+升级优先控制成本：不允许新旧 Pod 重叠产生付费请求，并接受新 Pod 刷新且 Ready
+之前的临时指标中断。关闭时先让 `/ready` 以 `shutting_down` 变为不可用，再取消
+Collector 并 Drain HTTP。
+
+系统使用仅内存 Snapshot，不把它作为备份。应通过部署平台备份已评审配置和 Secret
+引用，并保护 Prometheus 存储中的历史指标。Rollback 可以恢复旧 Binary 和配置，
+但不能恢复已经失效的进程内 Snapshot。
+
 ## Probe 与 Snapshot
 
 - `/healthz` 只表示进程存活。

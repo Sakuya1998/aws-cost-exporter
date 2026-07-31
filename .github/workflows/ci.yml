@@ -38,8 +38,10 @@ jobs:
           args: --timeout=5m
       - name: Security
         run: |
+          go install github.com/zricethezav/gitleaks/v8@v8.28.0
           go install golang.org/x/vuln/cmd/govulncheck@19b0bb6a272792b9afa8a6983c3e9b9a1816947f # v1.6.0
           go install github.com/securego/gosec/v2/cmd/gosec@v2.22.7
+          gitleaks git --redact --no-banner --exit-code 1
           govulncheck ./...
           gosec ./...
 
@@ -72,6 +74,11 @@ jobs:
           go test -covermode=atomic -coverprofile=coverage.out ./cmd/... ./internal/...
           coverage="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
           awk -v coverage="$coverage" 'BEGIN { if (coverage < 79) { print "coverage < 79%"; exit 1 } }'
+          go test -covermode=atomic -coverprofile=core-coverage.out \
+            ./internal/domain/... ./internal/cache/... ./internal/scheduler/... \
+            ./internal/aws/common/... ./internal/aws/clientfactory/...
+          core_coverage="$(go tool cover -func=core-coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
+          awk -v coverage="$core_coverage" 'BEGIN { if (coverage < 85) { print "core coverage < 85%"; exit 1 } }'
 
   assets:
     runs-on: ubuntu-latest
@@ -106,7 +113,7 @@ jobs:
         run: >-
           go test -count=1 -timeout=5m
           ./test/chart/... ./test/dashboard/... ./test/rules/...
-          ./test/docs/... ./test/ci/... ./test/release/...
+          ./test/docs/... ./test/ci/... ./test/contract/... ./test/release/...
 
   container:
     runs-on: ubuntu-latest

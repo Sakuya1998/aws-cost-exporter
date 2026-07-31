@@ -68,8 +68,11 @@ aws_cost_service_daily_amount{aws_service="Amazon EC2",cost_basis="unblended",cu
 }
 
 func TestBudgetMissingForecastOmitsSeries(t *testing.T) {
+	limit, _ := cost.NewMoney(100, "USD")
+	actual, _ := cost.NewMoney(45, "USD")
+	value := snapshot.New(nil, nil, []budget.Budget{{Target: "payer-prod", Name: "Monthly", Type: "COST", TimeUnit: "MONTHLY", Limit: limit, Actual: actual, HasActual: true}}, nil)
 	registry := prometheus.NewPedanticRegistry()
-	subject, _ := NewCostCollector(staticStore{snapshot: businessSnapshot(t)})
+	subject, _ := NewCostCollector(staticStore{snapshot: value})
 	registry.MustRegister(subject)
 	families, _ := registry.Gather()
 	for _, family := range families {
@@ -155,5 +158,19 @@ func businessSnapshot(t *testing.T) snapshot.Snapshot {
 	upper, _ := cost.NewMoney(110, "USD")
 	limit, _ := cost.NewMoney(100, "USD")
 	actual, _ := cost.NewMoney(45, "USD")
-	return snapshot.New(costs, []cost.Forecast{{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Period: month, Mean: mean, LowerBound: lower, UpperBound: upper}}, []budget.Budget{{Target: target, Name: "Monthly", Type: "COST", TimeUnit: "MONTHLY", Limit: limit, Actual: actual, HasActual: true}}, []organization.Account{{Target: target, AccountID: "123456789012", Name: "production", Status: "ACTIVE"}})
+	forecasted, _ := cost.NewMoney(80, "USD")
+	commitmentMoney, _ := cost.NewMoney(12, "USD")
+	impact, _ := cost.NewMoney(7, "USD")
+	return snapshot.NewWithData(
+		costs,
+		[]cost.Forecast{{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Period: month, Mean: mean, LowerBound: lower, UpperBound: upper}},
+		[]budget.Budget{{Target: target, Name: "Monthly", Type: "COST", TimeUnit: "MONTHLY", Limit: limit, Actual: actual, Forecasted: forecasted, HasActual: true, HasForecasted: true}},
+		[]organization.Account{{Target: target, AccountID: "123456789012", Name: "production", Status: "ACTIVE"}},
+		[]commitment.Summary{{Target: target, Type: commitment.TypeSavingsPlan, TimeUnit: "MONTHLY", UtilizationRatio: .8, CoverageRatio: .7, UnusedHours: 5, CoveredSpend: commitmentMoney, OnDemandCost: commitmentMoney, NetSavings: commitmentMoney, HasUtilization: true, HasCoverage: true, HasUnusedHours: true, HasCoveredSpend: true, HasOnDemandCost: true, HasNetSavings: true}},
+		[]anomaly.Summary{{Target: target, Active: true, Count: 2, Impact: impact, LastDetected: day.Start(), HasImpact: true}},
+		[]tagcost.Cost{
+			{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowDaily, TagKey: "Environment", TagValue: "prod", Amount: actual},
+			{Target: target, Provider: cost.ProviderCostExplorer, Basis: cost.BasisUnblended, Window: cost.WindowMonthToDate, TagKey: "Environment", TagValue: "prod", Amount: forecasted},
+		},
+	)
 }

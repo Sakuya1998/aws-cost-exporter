@@ -16,6 +16,17 @@ The Wiki documents only the current stable release. Historical configuration con
 8. GoReleaser builds archives, generates SPDX JSON SBOM files and checksums, and creates a Draft Release.
 9. A maintainer independently verifies signatures and assets before publishing the Draft.
 
+For v1 releases, the workflow also uploads a sanitized `release-audit-input`
+artifact after GoReleaser completes. It contains the real tag, source SHA,
+workflow URL, image and chart digests, 13 release asset names, cosign version,
+certificate identity and issuer policy, and Trivy result. It is an input to
+maintainer verification, not a substitute for independent `cosign verify`.
+
+The repository-tracked [v1.0.0 checklist](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0-checklist.md)
+keeps 24-hour stability, real AWS least privilege, upgrade/rollback, and final
+Draft publication as explicit release gates. Actual digests are recorded only
+after the release workflow completes.
+
 The release workflow has `contents: write`, `packages: write`, and `id-token: write`; normal PR CI remains read-only.
 
 ## v0.3.0

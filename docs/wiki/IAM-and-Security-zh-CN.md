@@ -2,6 +2,14 @@
 
 # IAM 与安全
 
+配置写权限等同于使用凭证的权限。Endpoint Override 可以重定向已签名 AWS 请求，
+因此生产配置写入者必须与凭证管理员具有相同信任级别，生产环境不得使用 Endpoint
+Override。`/metrics` 是敏感财务遥测，只能在私有网络或认证 TLS 代理后暴露，并限制
+Prometheus 访问权限。
+
+v1.0.0 发布后支持最近两个 minor 版本；后一个版本发布后，前一个版本至少继续支持
+六个月。残余风险和协调披露流程见公开 Threat Model 与 `SECURITY.md`。
+
 只授予已启用 Collector 所需 API，并分离 Source Principal 与 Target Role 权限。
 
 ## Collector 权限

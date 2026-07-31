@@ -62,6 +62,7 @@ jobs:
             trivy image --platform "$platform" --exit-code 1 --severity HIGH,CRITICAL \
               "aws-cost-exporter:scan-$arch"
           done
+          echo "TRIVY_RESULT=passed" >> "$GITHUB_ENV"
       - name: Authenticate registries
         env:
           GH_TOKEN: ${{ github.token }}
@@ -94,8 +95,46 @@ jobs:
           echo "$output"
           digest="$(awk '/^Digest: sha256:/{print $2}' <<< "$output")"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          cosign sign --yes "$CHART@$digest"
+          CHART_DIGEST="$digest"
+          echo "CHART_DIGEST=$digest" >> "$GITHUB_ENV"
+          cosign sign --yes "$CHART@$CHART_DIGEST"
       - name: Publish draft GitHub release
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: goreleaser release --clean
+      - name: Create sanitized release audit input
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_file="$RUNNER_TEMP/release-audit-input.json"
+          mapfile -t archives < <(find dist -maxdepth 1 -type f \( -name 'aws-cost-exporter_*.tar.gz' -o -name 'aws-cost-exporter_*.zip' \) -printf '%f\n' | sort)
+          mapfile -t sboms < <(find dist -maxdepth 1 -type f -name 'aws-cost-exporter_*.spdx.json' -printf '%f\n' | sort)
+          if [ "${#archives[@]}" -ne 6 ] || [ "${#sboms[@]}" -ne 6 ] || [ ! -f dist/checksums.txt ]; then
+            echo "unexpected GoReleaser release assets: archives=${#archives[@]} sboms=${#sboms[@]}"
+            exit 1
+          fi
+          mapfile -t assets < <(printf '%s\n' "${archives[@]}" "${sboms[@]}" checksums.txt | sort)
+          asset_names="$(printf '%s\n' "${assets[@]}" | jq -R . | jq -s .)"
+          jq -n \
+            --arg tag "$GITHUB_REF_NAME" \
+            --arg source_sha "$GITHUB_SHA" \
+            --arg workflow_url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg image "$IMAGE@$IMAGE_DIGEST" \
+            --arg chart "$CHART@$CHART_DIGEST" \
+            --arg image_digest "$IMAGE_DIGEST" \
+            --arg chart_digest "$CHART_DIGEST" \
+            --arg cosign_version "v3.1.1" \
+            --arg certificate_identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$GITHUB_REF_NAME" \
+            --arg certificate_oidc_issuer "https://token.actions.githubusercontent.com" \
+            --arg trivy_result "$TRIVY_RESULT" \
+            --argjson asset_names "$asset_names" \
+            '{tag:$tag,source_sha:$source_sha,workflow_url:$workflow_url,image:$image,chart:$chart,image_digest:$image_digest,chart_digest:$chart_digest,asset_names:$asset_names,cosign_version:$cosign_version,certificate_identity:$certificate_identity,certificate_oidc_issuer:$certificate_oidc_issuer,trivy_result:$trivy_result}' \
+            > "$audit_file"
+          jq -e '.source_sha | test("^[0-9a-f]{40}$")' "$audit_file" >/dev/null
+      - name: Upload sanitized release audit input
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-audit-input-${{ github.ref_name }}
+          path: ${{ runner.temp }}/release-audit-input.json
+          if-no-files-found: error
+          retention-days: 90

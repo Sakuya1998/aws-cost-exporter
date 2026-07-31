@@ -1,1 +1,9 @@
-{"Version":"2012-10-17","Statement":[{"Sid":"ReadBudgets","Effect":"Allow","Action":"budgets:ViewBudget","Resource":"*"}]}
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "ReadNamedBudget",
+    "Effect": "Allow",
+    "Action": "budgets:ViewBudget",
+    "Resource": "arn:aws:budgets::444455556666:budget/monthly-platform"
+  }]
+}

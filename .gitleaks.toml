@@ -1,0 +1,6 @@
+[[allowlists]]
+description = "Non-secret stability workflow assertion"
+condition = "AND"
+regexTarget = "match"
+paths = ['''^test/ci/ci_test\.go$''']
+regexes = ['''must not expose AWS credentials", "TestV1StabilitySoak''']

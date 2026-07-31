@@ -61,3 +61,12 @@ The wrapper is installed in the SDK attempt-token path, so initial requests and 
 - v0.3.0 remains single-replica. See [ADR 0002](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/adr/0002-ha-refresh-coordination.md).
 
 The authoritative decision records are in [`docs/adr`](https://github.com/Sakuya1998/aws-cost-exporter/tree/master/docs/adr).
+
+## v1 operational envelope
+
+v1 supports 20 targets and 20,000+ business series in one process on the 2 vCPU
+and 512 MiB reference environment. Snapshots remain memory-only snapshots:
+restart loses cached values and Prometheus owns durable retention. There is no
+leader election, fencing, shared persistence, or coordinated multi-replica
+refresh. The Helm replacement strategy prevents old and new pods from making
+paid requests at the same time.

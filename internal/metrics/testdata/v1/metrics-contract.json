@@ -1,0 +1,496 @@
+{
+  "version": "v1.0.0",
+  "metrics": [
+    {
+      "name": "aws_budget_actual_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "budget_name",
+        "currency",
+        "budget_type",
+        "time_unit"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_budget_forecasted_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "budget_name",
+        "currency",
+        "budget_type",
+        "time_unit"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_budget_limit_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "budget_name",
+        "currency",
+        "budget_type",
+        "time_unit"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_commitment_coverage_ratio",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "commitment_type",
+        "time_unit"
+      ],
+      "unit": "ratio"
+    },
+    {
+      "name": "aws_commitment_covered_spend_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "commitment_type",
+        "time_unit",
+        "currency"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_commitment_net_savings_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "commitment_type",
+        "time_unit",
+        "currency"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_commitment_on_demand_cost_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "commitment_type",
+        "time_unit",
+        "currency"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_commitment_unused_hours",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "commitment_type",
+        "time_unit"
+      ],
+      "unit": "hours"
+    },
+    {
+      "name": "aws_commitment_utilization_ratio",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "commitment_type",
+        "time_unit"
+      ],
+      "unit": "ratio"
+    },
+    {
+      "name": "aws_cost_account_daily_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency",
+        "linked_account_id"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_account_info",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "linked_account_id",
+        "account_name",
+        "account_status"
+      ],
+      "unit": "info"
+    },
+    {
+      "name": "aws_cost_account_month_to_date_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency",
+        "linked_account_id"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_anomaly_active",
+      "type": "gauge",
+      "variable_labels": [
+        "target"
+      ],
+      "unit": "boolean"
+    },
+    {
+      "name": "aws_cost_anomaly_count",
+      "type": "gauge",
+      "variable_labels": [
+        "target"
+      ],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_anomaly_impact_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "currency"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_anomaly_last_detected_timestamp_seconds",
+      "type": "gauge",
+      "variable_labels": [
+        "target"
+      ],
+      "unit": "seconds"
+    },
+    {
+      "name": "aws_cost_daily_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_exporter_aws_api_request_duration_seconds",
+      "type": "histogram",
+      "variable_labels": [
+        "target",
+        "operation"
+      ],
+      "unit": "seconds"
+    },
+    {
+      "name": "aws_cost_exporter_aws_api_requests_total",
+      "type": "counter",
+      "variable_labels": [
+        "target",
+        "operation",
+        "status"
+      ],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_exporter_aws_api_retries_total",
+      "type": "counter",
+      "variable_labels": [
+        "target",
+        "operation",
+        "reason"
+      ],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_exporter_build_info",
+      "type": "gauge",
+      "variable_labels": [
+        "version",
+        "revision",
+        "go_version"
+      ],
+      "unit": "info"
+    },
+    {
+      "name": "aws_cost_exporter_cache_age_seconds",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "collector"
+      ],
+      "unit": "seconds"
+    },
+    {
+      "name": "aws_cost_exporter_cache_publish_errors_total",
+      "type": "counter",
+      "variable_labels": [
+        "target",
+        "collector",
+        "operation"
+      ],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_exporter_collector_up",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "collector"
+      ],
+      "unit": "boolean"
+    },
+    {
+      "name": "aws_cost_exporter_dimension_overflow_values_total",
+      "type": "counter",
+      "variable_labels": [
+        "target",
+        "dimension"
+      ],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_exporter_last_attempt_timestamp_seconds",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "collector"
+      ],
+      "unit": "seconds"
+    },
+    {
+      "name": "aws_cost_exporter_last_success_timestamp_seconds",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "collector"
+      ],
+      "unit": "seconds"
+    },
+    {
+      "name": "aws_cost_exporter_pagination_pages_total",
+      "type": "counter",
+      "variable_labels": [
+        "target",
+        "operation"
+      ],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_exporter_refresh_duration_seconds",
+      "type": "histogram",
+      "variable_labels": [
+        "target",
+        "collector"
+      ],
+      "unit": "seconds"
+    },
+    {
+      "name": "aws_cost_exporter_refresh_total",
+      "type": "counter",
+      "variable_labels": [
+        "target",
+        "collector",
+        "status"
+      ],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_exporter_scheduler_shutdown_timeouts_total",
+      "type": "counter",
+      "variable_labels": [],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_exporter_scheduler_skipped_runs_total",
+      "type": "counter",
+      "variable_labels": [
+        "target",
+        "collector",
+        "reason"
+      ],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_exporter_snapshot_series",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "collector"
+      ],
+      "unit": "count"
+    },
+    {
+      "name": "aws_cost_month_forecast_lower_bound_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_month_forecast_mean_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_month_forecast_upper_bound_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_month_to_date_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_region_daily_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency",
+        "aws_region"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_region_month_to_date_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency",
+        "aws_region"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_service_daily_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency",
+        "aws_service"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_service_month_to_date_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency",
+        "aws_service"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_tag_daily_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency",
+        "tag_key",
+        "tag_value"
+      ],
+      "unit": "currency"
+    },
+    {
+      "name": "aws_cost_tag_month_to_date_amount",
+      "type": "gauge",
+      "variable_labels": [
+        "target",
+        "provider",
+        "cost_basis",
+        "currency",
+        "tag_key",
+        "tag_value"
+      ],
+      "unit": "currency"
+    }
+  ],
+  "bounded_enums": {
+    "operations": [
+      "AssumeRole",
+      "GetCallerIdentity",
+      "GetCostAndUsage",
+      "GetCostForecast",
+      "ListAccounts",
+      "DescribeOrganization",
+      "DescribeBudgets",
+      "GetSavingsPlansUtilization",
+      "GetSavingsPlansCoverage",
+      "GetReservationUtilization",
+      "GetReservationCoverage",
+      "GetAnomalies",
+      "StartQueryExecution",
+      "GetQueryExecution",
+      "GetQueryResults",
+      "StopQueryExecution",
+      "unknown"
+    ],
+    "providers": [
+      "cost_explorer",
+      "cur_athena"
+    ],
+    "cost_bases": [
+      "unblended",
+      "amortized",
+      "net"
+    ],
+    "refresh_statuses": [
+      "success",
+      "error",
+      "canceled",
+      "unknown"
+    ],
+    "request_statuses": [
+      "success",
+      "error",
+      "canceled",
+      "throttle",
+      "unknown"
+    ],
+    "retry_reasons": [
+      "throttle",
+      "timeout",
+      "other"
+    ]
+  }
+}

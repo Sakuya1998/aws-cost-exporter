@@ -70,6 +70,25 @@ func TestReadinessRequiresEveryRequiredTargetCollector(t *testing.T) {
 	}
 }
 
+func TestBeginShutdownMakesServerNotReadyButKeepsHealthLive(t *testing.T) {
+	subject, err := New(testConfig(), prometheus.NewRegistry(), readyReader(), []identity.CollectorID{requiredID}, version.Info{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject.BeginShutdown()
+
+	ready := httptest.NewRecorder()
+	subject.Handler().ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if ready.Code != http.StatusServiceUnavailable || !strings.Contains(ready.Body.String(), `"reason":"shutting_down"`) {
+		t.Fatalf("ready=%d %q", ready.Code, ready.Body.String())
+	}
+	health := httptest.NewRecorder()
+	subject.Handler().ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if health.Code != http.StatusOK || !strings.Contains(health.Body.String(), `"status":"ok"`) {
+		t.Fatalf("health=%d %q", health.Code, health.Body.String())
+	}
+}
+
 func TestServerDebugIsolationAndValidation(t *testing.T) {
 	value := testConfig()
 	value.Debug.Enabled = true
