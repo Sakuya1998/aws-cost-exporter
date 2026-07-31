@@ -71,7 +71,7 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 		"trivy image", "cosign sign --yes", "helm package", "helm push",
 		"charts/aws-cost-exporter", "GITHUB_REF_NAME", "!= *-*",
 		`'.["containerimage.digest"]'`, `--app-version "$VERSION"`, `"oci://$CHART_REPOSITORY"`,
-		`cosign sign --yes "$CHART@$digest"`, `--platform "$platform"`,
+		`cosign sign --yes "$CHART@$CHART_DIGEST"`, `--platform "$platform"`,
 	} {
 		if !strings.Contains(content, fragment) {
 			t.Errorf("release workflow lacks %q", fragment)
@@ -93,6 +93,114 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 	for _, match := range uses {
 		if !sha.MatchString(match[1]) {
 			t.Errorf("release action is not SHA pinned: %s", match[0])
+		}
+	}
+}
+
+func TestV1ReleaseAssetsAndAuditInputAreMachineLocked(t *testing.T) {
+	goreleaser := read(t, filepath.Join("..", "..", ".goreleaser.yaml"))
+	var config struct {
+		Builds []struct {
+			Goos   []string `yaml:"goos"`
+			Goarch []string `yaml:"goarch"`
+		} `yaml:"builds"`
+		Archives []struct {
+			Formats         []string `yaml:"formats"`
+			FormatOverrides []struct {
+				Goos    string   `yaml:"goos"`
+				Formats []string `yaml:"formats"`
+			} `yaml:"format_overrides"`
+		} `yaml:"archives"`
+		SBOMs []struct {
+			Artifacts string   `yaml:"artifacts"`
+			Documents []string `yaml:"documents"`
+		} `yaml:"sboms"`
+	}
+	if err := yaml.Unmarshal([]byte(goreleaser), &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Builds) != 1 || strings.Join(config.Builds[0].Goos, ",") != "linux,darwin,windows" || strings.Join(config.Builds[0].Goarch, ",") != "amd64,arm64" {
+		t.Fatalf("unexpected v1 build matrix: %+v", config.Builds)
+	}
+	if len(config.Archives) != 1 || strings.Join(config.Archives[0].Formats, ",") != "tar.gz" || len(config.Archives[0].FormatOverrides) != 1 ||
+		config.Archives[0].FormatOverrides[0].Goos != "windows" || strings.Join(config.Archives[0].FormatOverrides[0].Formats, ",") != "zip" {
+		t.Fatalf("unexpected v1 archive formats: %+v", config.Archives)
+	}
+	if len(config.SBOMs) != 1 || config.SBOMs[0].Artifacts != "archive" || strings.Join(config.SBOMs[0].Documents, ",") != "${artifact}.spdx.json" {
+		t.Fatalf("unexpected v1 archive SBOM contract: %+v", config.SBOMs)
+	}
+	for _, fragment := range []string{
+		"goos: [linux, darwin, windows]", "goarch: [amd64, arm64]", "formats: [zip]",
+		"name_template: checksums.txt", "artifacts: archive", `${artifact}.spdx.json`, "draft: true",
+	} {
+		if !strings.Contains(goreleaser, fragment) {
+			t.Errorf("v1 GoReleaser contract lacks %q", fragment)
+		}
+	}
+
+	workflow := read(t, filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+	for _, fragment := range []string{
+		"linux/amd64,linux/arm64", "--provenance=mode=max", "--sbom=true",
+		`echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"`, `echo "CHART_DIGEST=$digest" >> "$GITHUB_ENV"`,
+		`CHART_DIGEST="$digest"`, `"${#archives[@]}" -ne 6`, `"${#sboms[@]}" -ne 6`, "dist/checksums.txt",
+		`cosign sign --yes "$IMAGE@$IMAGE_DIGEST"`, `cosign sign --yes "$CHART@$CHART_DIGEST"`,
+		`audit_file="$RUNNER_TEMP/release-audit-input.json"`, "release-audit-input", "actions/upload-artifact@",
+		"GITHUB_REF_NAME", "GITHUB_SHA", "GITHUB_RUN_ID", "IMAGE_DIGEST", "CHART_DIGEST",
+		"asset_names", "cosign_version", "certificate_identity", "certificate_oidc_issuer", "trivy_result",
+		"https://token.actions.githubusercontent.com", "goreleaser release --clean",
+	} {
+		if !strings.Contains(workflow, fragment) {
+			t.Errorf("v1 release workflow lacks %q", fragment)
+		}
+	}
+	if strings.Index(workflow, `goreleaser release --clean`) > strings.Index(workflow, `audit_file="$RUNNER_TEMP/release-audit-input.json"`) {
+		t.Error("release audit input must be written after GoReleaser so the asset manifest is complete")
+	}
+	for _, forbidden := range []string{`audit_file="release-audit-input.json"`, `metadata_file="image-metadata.json"`} {
+		if strings.Contains(workflow, forbidden) {
+			t.Errorf("release runtime data is written in the repository: %q", forbidden)
+		}
+	}
+
+	expectedArchives := map[string]bool{
+		"aws-cost-exporter_1.0.0_linux_amd64.tar.gz": true, "aws-cost-exporter_1.0.0_linux_arm64.tar.gz": true,
+		"aws-cost-exporter_1.0.0_darwin_amd64.tar.gz": true, "aws-cost-exporter_1.0.0_darwin_arm64.tar.gz": true,
+		"aws-cost-exporter_1.0.0_windows_amd64.zip": true, "aws-cost-exporter_1.0.0_windows_arm64.zip": true,
+	}
+	generated := make(map[string]bool)
+	for _, goos := range config.Builds[0].Goos {
+		format := "tar.gz"
+		if goos == "windows" {
+			format = "zip"
+		}
+		for _, goarch := range config.Builds[0].Goarch {
+			generated["aws-cost-exporter_1.0.0_"+goos+"_"+goarch+"."+format] = true
+		}
+	}
+	if len(generated) != len(expectedArchives) {
+		t.Fatalf("generated archive count=%d, want %d", len(generated), len(expectedArchives))
+	}
+	for archive := range expectedArchives {
+		if !generated[archive] {
+			t.Errorf("GoReleaser matrix does not generate %s", archive)
+		}
+	}
+}
+
+func TestV1ReleaseChecklistCoversEveryManualAndAutomatedGate(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", "docs", "releases", "v1.0-checklist.md"))
+	for _, fragment := range []string{
+		"contract diff", "core coverage", "full tests", "race tests", "delivery assets", "container smoke",
+		"20,000", "24-hour stability", "real AWS", "least privilege", "vulnerability",
+		"SBOM", "provenance", "cosign verify", "upgrade", "rollback", "Draft Release",
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("v1 release checklist lacks %q", fragment)
+		}
+	}
+	for _, forbidden := range []string{"sha256:<", "TBD", "pending result"} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("v1 checklist fabricates future evidence through %q", forbidden)
 		}
 	}
 }
