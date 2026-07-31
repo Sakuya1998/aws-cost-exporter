@@ -16,6 +16,21 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
 		t.Fatalf("parse CI workflow: %v", err)
 	}
+	root, ok := document.(map[string]any)
+	if !ok {
+		t.Fatalf("CI workflow root has type %T", document)
+	}
+	jobs, ok := root["jobs"].(map[string]any)
+	if !ok {
+		t.Fatalf("CI workflow jobs has type %T", root["jobs"])
+	}
+	assetsYAML, err := yaml.Marshal(jobs["assets"])
+	if err != nil {
+		t.Fatalf("marshal CI assets job: %v", err)
+	}
+	if !strings.Contains(string(assetsYAML), "./test/contract/...") {
+		t.Error("CI assets job does not run ./test/contract/...")
+	}
 	for _, fragment := range []string{
 		"pull_request:", "branches: [master]", "contents: read", "go-version: [\"1.24.x\", stable]",
 		"gofmt -l", "goimports", "go vet ./...", "golangci-lint-action",
@@ -34,6 +49,7 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 	for _, forbidden := range []string{
 		"contents: write", "packages: write", "id-token: write",
 		"go install github.com/prometheus/prometheus/cmd/promtool@",
+		"-update-contract",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Errorf("PR workflow grants forbidden permission %q", forbidden)
@@ -48,6 +64,18 @@ func TestCIWorkflowEnforcesQualityAndAssetChecks(t *testing.T) {
 		if !sha.MatchString(match[1]) {
 			t.Errorf("action is not SHA pinned: %s", match[0])
 		}
+	}
+}
+
+func TestMakefileExposesReviewedContractCheck(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", "Makefile"))
+	phony := regexp.MustCompile(`(?m)^\.PHONY:.*\bcontract\b`)
+	if !phony.MatchString(content) {
+		t.Error("Makefile .PHONY does not include contract")
+	}
+	contract := regexp.MustCompile(`(?m)^contract:\r?\n\tgo test -count=1 ./internal/config ./internal/metrics ./internal/httpserver ./test/contract/\.\.\.$`)
+	if !contract.MatchString(content) {
+		t.Error("Makefile contract target does not run the reviewed contract suites")
 	}
 }
 
