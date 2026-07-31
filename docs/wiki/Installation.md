@@ -4,14 +4,14 @@
 
 ## Release artifacts
 
-Download v0.3.0 archives and checksums from the [GitHub Release](https://github.com/Sakuya1998/aws-cost-exporter/releases/tag/v0.3.0). Releases include Linux, Windows, and macOS archives for amd64 and arm64, SPDX JSON SBOM files, and `checksums.txt`.
+Download v1.0.0 archives and checksums from the [GitHub Release](https://github.com/Sakuya1998/aws-cost-exporter/releases/tag/v1.0.0). Releases include Linux, Windows, and macOS archives for amd64 and arm64, SPDX JSON SBOM files, and `checksums.txt`.
 
 ## Build from source
 
 ```bash
 git clone https://github.com/Sakuya1998/aws-cost-exporter.git
 cd aws-cost-exporter
-git checkout v0.3.0
+git checkout v1.0.0
 make build
 ./aws-cost-exporter --version
 ```
@@ -19,7 +19,7 @@ make build
 ## Docker
 
 ```bash
-docker pull ghcr.io/sakuya1998/aws-cost-exporter:0.3.0
+docker pull ghcr.io/sakuya1998/aws-cost-exporter:1.0.0
 docker compose up --build
 ```
 
@@ -30,13 +30,13 @@ Mount AWS shared configuration read-only or inject only environment-variable ref
 ```bash
 helm install aws-cost-exporter \
   oci://ghcr.io/sakuya1998/charts/aws-cost-exporter \
-  --version 0.3.0 \
+  --version 1.0.0 \
   --set config.data.targets[0].account_id=444455556666
 ```
 
 Use `config.secretEnvRefs` for existing Secrets and `awsSharedConfig.existingSecret` for mounted AWS Profile files. The chart deliberately defaults to `replicaCount: 1`.
 
-For v1, Helm also fixes the RollingUpdate values `maxSurge: 0` and
+For v1, Helm fixes the RollingUpdate values `maxSurge: 0` and
 `maxUnavailable: 1`. This prevents old and new pods from overlapping paid AWS
 requests. Plan for a temporary metrics outage while the replacement pod starts,
 refreshes its memory-only cache, and becomes ready. Validate the current config
@@ -45,4 +45,4 @@ not recover. There is no zero-downtime single-replica upgrade mode.
 
 ## Verify OCI signatures
 
-The image and Helm chart are signed by the tag-triggered release workflow. Use the exact identity and issuer from the [v0.3.0 verification record](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v0.3.0-verification.md). Pin verified digests when immutability is required.
+The image and Helm chart are signed by the tag-triggered release workflow. Use the exact identity, issuer, and digests from the [v1.0.0 verification record](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0.0-verification.md). Pin verified digests when immutability is required.

@@ -64,12 +64,17 @@ Explorer and CUR values must not be silently merged when their semantics differ.
 
 ## v1.0: Stable operational contract
 
-Status: in progress. The machine-checked configuration, Prometheus, HTTP,
-capacity, security, and release-audit foundations are implemented on the v1
-development branch. v1.0 is not complete until the
-[v1.0 release checklist](docs/releases/v1.0-checklist.md) records Linux race and
-RC validation, the 24-hour stability run, sanitized real AWS least-privilege
-validation, and the v0.3.0 upgrade and rollback exercise with no pod overlap.
+Status: completed in v1.0.0. PR #16 established the stable contracts and
+operational gates; PR #17 added the reviewed VEX disposition that unblocked the
+tag release without weakening HIGH/CRITICAL scanning. PR, `master`, and Release
+workflows passed, and the image and Helm chart signatures were independently
+verified. See the [v1.0.0 verification record](docs/releases/v1.0.0-verification.md)
+and [release checklist](docs/releases/v1.0-checklist.md).
+
+The 24-hour stability run, sanitized real AWS least-privilege validation, and
+the v0.3.0 upgrade and rollback exercise were explicitly deferred by the maintainer
+for this release. They are recorded as deferred operational
+follow-up and are not reported as passed.
 
 Goal: publish a production-stable exporter API.
 - Guarantee semantic-versioning rules for metrics, labels, configuration, and

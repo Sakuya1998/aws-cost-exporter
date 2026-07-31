@@ -38,6 +38,6 @@ The published container runs non-root with a read-only-compatible filesystem mod
 
 Follow the repository [Security Policy](https://github.com/Sakuya1998/aws-cost-exporter/security/policy). Use GitHub's private “Report a vulnerability” flow. Do not put a vulnerability, credential, account identifier, or billing sample in a public issue.
 
-After v1.0.0, the latest two minor releases are supported, with the older minor
+Starting with v1.0.0, the latest two minor releases are supported, with the older minor
 kept for at least six months after its successor. See the public threat model
 and `SECURITY.md` for residual risks and coordinated disclosure.

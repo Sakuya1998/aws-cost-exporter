@@ -7,7 +7,7 @@
 Override。`/metrics` 是敏感财务遥测，只能在私有网络或认证 TLS 代理后暴露，并限制
 Prometheus 访问权限。
 
-v1.0.0 发布后支持最近两个 minor 版本；后一个版本发布后，前一个版本至少继续支持
+从 v1.0.0 开始支持最近两个 minor 版本；后一个版本发布后，前一个版本至少继续支持
 六个月。残余风险和协调披露流程见公开 Threat Model 与 `SECURITY.md`。
 
 只授予已启用 Collector 所需 API，并分离 Source Principal 与 Target Role 权限。

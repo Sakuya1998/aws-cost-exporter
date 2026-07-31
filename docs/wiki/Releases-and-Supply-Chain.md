@@ -7,7 +7,7 @@ The Wiki documents only the current stable release. Historical configuration con
 ## Release process
 
 1. Merge a reviewed PR into `master` after CI passes.
-2. Create an annotated SemVer tag such as `v0.3.0` from the verified `master` commit.
+2. Create an annotated SemVer tag such as `v1.0.0` from the verified `master` commit.
 3. The tag-triggered Release workflow validates SemVer and installs pinned tools.
 4. Trivy scans every image platform for HIGH and CRITICAL findings.
 5. Buildx publishes the multi-architecture image with provenance and SBOM.
@@ -23,22 +23,29 @@ certificate identity and issuer policy, and Trivy result. It is an input to
 maintainer verification, not a substitute for independent `cosign verify`.
 
 The repository-tracked [v1.0.0 checklist](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0-checklist.md)
-keeps 24-hour stability, real AWS least privilege, upgrade/rollback, and final
-Draft publication as explicit release gates. Actual digests are recorded only
-after the release workflow completes.
+and [verification record](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0.0-verification.md)
+separate completed automated and supply-chain evidence from the 24-hour
+stability, real AWS, and upgrade/rollback exercises explicitly deferred by the
+maintainer. Deferred gates are not reported as passed.
 
 The release workflow has `contents: write`, `packages: write`, and `id-token: write`; normal PR CI remains read-only.
 
-## v0.3.0
+## v1.0.0
+
+- [GitHub Release](https://github.com/Sakuya1998/aws-cost-exporter/releases/tag/v1.0.0)
+- [Verification record](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0.0-verification.md)
+- Image: `ghcr.io/sakuya1998/aws-cost-exporter:1.0.0`
+- Chart: `ghcr.io/sakuya1998/charts/aws-cost-exporter:1.0.0`
+
+The record fixes the source commit, CI runs, 13 release assets, VEX disposition,
+attestations, certificate policy, and verified image/chart digests.
+
+## Historical evidence
 
 - [GitHub Release](https://github.com/Sakuya1998/aws-cost-exporter/releases/tag/v0.3.0)
 - [Verification record](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v0.3.0-verification.md)
 - Image: `ghcr.io/sakuya1998/aws-cost-exporter:0.3.0`
 - Chart: `ghcr.io/sakuya1998/charts/aws-cost-exporter:0.3.0`
-
-The record fixes the merge commit, CI runs, 13 release assets, certificate policy, and verified image/chart digests.
-
-## Historical evidence
 
 - [v0.1.5 verification](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v0.1.5-verification.md)
 - [v0.1 release checklist](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v0.1-checklist.md)

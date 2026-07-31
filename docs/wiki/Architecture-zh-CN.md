@@ -65,6 +65,6 @@ Wrapper 安装在 SDK attempt-token 路径，因此初始请求和 retry 都经�
 - 拒绝 scrape 时查询 AWS，因为会把 Prometheus 与付费分页 API 耦合。
 - 暂不使用本地持久缓存，因为 Prometheus 已负责保留，持久化会增加迁移、加密、HA 问题。
 - 拒绝动态 Go Plugin，Collector 使用编译期注册和窄接口。
-- v0.3.0 保持单副本，参见 [ADR 0002](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/adr/0002-ha-refresh-coordination.md)。
+- v1.0.0 保持单副本，参见 [ADR 0002](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/adr/0002-ha-refresh-coordination.md)。
 
 权威决策记录位于 [`docs/adr`](https://github.com/Sakuya1998/aws-cost-exporter/tree/master/docs/adr)。

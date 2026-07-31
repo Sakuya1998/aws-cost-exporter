@@ -28,9 +28,10 @@ CI additionally runs formatting/import checks, govulncheck, gosec, coverage at o
 
 v1 adds versioned configuration, metrics, and HTTP contract fixtures, an 85%
 core-coverage floor, gitleaks, and a deterministic 20-target/20,000-series
-capacity test. The 24-hour stability run, sanitized real AWS least-privilege
-validation, and v0.3.0 upgrade/rollback are manual release gates, not normal PR
-CI. Results must be recorded without account IDs, costs, SQL, or credentials.
+capacity test. For v1.0.0, the 24-hour stability run, sanitized real AWS
+least-privilege validation, and v0.3.0 upgrade/rollback exercise were explicitly
+deferred by the maintainer and are not reported as passed. Future results must
+be recorded without account IDs, costs, SQL, or credentials.
 
 ## Testing strategy
 

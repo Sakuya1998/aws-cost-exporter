@@ -269,6 +269,31 @@ func TestV1ReleaseChecklistCoversEveryManualAndAutomatedGate(t *testing.T) {
 			t.Errorf("v1 checklist fabricates future evidence through %q", forbidden)
 		}
 	}
+	if !strings.Contains(content, "explicitly deferred by the maintainer") {
+		t.Error("v1 checklist does not distinguish deferred manual gates from passed gates")
+	}
+}
+
+func TestV100VerificationRecordPinsArtifactsIdentityAndDeferredGates(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", "docs", "releases", "v1.0.0-verification.md"))
+	for _, fragment := range []string{
+		"PR #17", "804142f6340c162d415c10f8afe4f262a043d271",
+		"30618291355", "30618481849", "30618868956", "13 uploaded assets",
+		"published on 2026-07-31", "Latest public release",
+		"sha256:9364feb5561a236a3cffd4ce90233b948e0ac26ecf4681c236b0ebcea8deba21",
+		"sha256:b4f657c6c5567b8f497238b243dfbe721d358720c3e5b65344cf059fab3580a6",
+		"cosign v3.1.1", "release.yml@refs/tags/v1.0.0", "https://token.actions.githubusercontent.com",
+		"CVE-2026-56852", "vulnerable_code_not_in_execute_path", "govulncheck", "Trivy",
+		"explicitly deferred by the maintainer", "24-hour stability", "real AWS", "upgrade/rollback", "not reported as passed",
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("v1.0.0 verification record lacks %q", fragment)
+		}
+	}
+	checklist := read(t, filepath.Join("..", "..", "docs", "releases", "v1.0-checklist.md"))
+	if !strings.Contains(checklist, "- [x] Publish only after the immutable v1.0.0 verification record") {
+		t.Error("v1.0.0 checklist does not record final Release publication")
+	}
 }
 
 func TestV01ChecklistCoversReleaseGates(t *testing.T) {

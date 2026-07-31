@@ -37,7 +37,7 @@ Context 取消会停止 limiter wait、AWS 请求、Athena polling、SDK retry�
 
 ## 副本策略
 
-Helm 保持 `replicaCount: 1`。v0.3.0 没有 Leader Election、共享 Cache 或刷新所有权。多个副本会重复付费请求，并成为重复 Prometheus scrape target。
+Helm 保持 `replicaCount: 1`。v1.0.0 没有 Leader Election、共享 Cache 或刷新所有权。多个副本会重复付费请求，并成为重复 Prometheus scrape target。
 
 ## Cost Explorer 成本
 

@@ -7,7 +7,7 @@ Wiki 只描述当前稳定版本。历史配置契约通过 Git Tag 和 GitHub R
 ## 发布流程
 
 1. PR 通过 CI 和 Review 后合并到 `master`。
-2. 从已验证的 `master` commit 创建 annotated SemVer tag，例如 `v0.3.0`。
+2. 从已验证的 `master` commit 创建 annotated SemVer tag，例如 `v1.0.0`。
 3. Tag 触发 Release workflow，校验 SemVer 并安装固定版本工具。
 4. Trivy 扫描每个平台镜像的 HIGH/CRITICAL 问题。
 5. Buildx 发布带 Provenance 与 SBOM 的多架构镜像。
@@ -20,18 +20,24 @@ Release workflow 拥有 `contents: write`、`packages: write`、`id-token: write
 
 v1 发布工作流会在 GoReleaser 完成后上传脱敏的 `release-audit-input` 工件，其中包含真实 Tag、源提交 SHA、工作流 URL、镜像与 Chart Digest、13 个 Release 资产名称、cosign 版本、证书身份与 Issuer 策略以及 Trivy 结果。该工件是维护者复核的输入，不能替代独立的 `cosign verify`。
 
-仓库中的 [v1.0.0 检查清单](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0-checklist.md) 将 24 小时稳定性、真实 AWS 最小权限、升级/回滚和 Draft 发布保留为明确门禁。只有 Release workflow 完成后才记录实际 Digest。
+仓库中的 [v1.0.0 检查清单](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0-checklist.md) 与 [验证记录](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0.0-verification.md) 将已完成的自动化和供应链证据，与维护者明确延期的 24 小时稳定性、真实 AWS 和升级/回滚演练分开记录。延期项目不能记为通过。
 
-## v0.3.0
+## v1.0.0
+
+- [GitHub Release](https://github.com/Sakuya1998/aws-cost-exporter/releases/tag/v1.0.0)
+- [验证记录](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v1.0.0-verification.md)
+- 镜像：`ghcr.io/sakuya1998/aws-cost-exporter:1.0.0`
+- Chart：`ghcr.io/sakuya1998/charts/aws-cost-exporter:1.0.0`
+
+验证记录固定了源提交、CI Run、13 个 Release 资产、VEX 处置、Attestation、
+Certificate Policy 和已验证镜像/Chart Digest。
+
+## 历史证据
 
 - [GitHub Release](https://github.com/Sakuya1998/aws-cost-exporter/releases/tag/v0.3.0)
 - [验证记录](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v0.3.0-verification.md)
 - 镜像：`ghcr.io/sakuya1998/aws-cost-exporter:0.3.0`
 - Chart：`ghcr.io/sakuya1998/charts/aws-cost-exporter:0.3.0`
-
-验证记录固定了 Merge Commit、CI Run、13 个 Release 资产、Certificate Policy 和已验证镜像/Chart Digest。
-
-## 历史证据
 
 - [v0.1.5 验证](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v0.1.5-verification.md)
 - [v0.1 发布清单](https://github.com/Sakuya1998/aws-cost-exporter/blob/master/docs/releases/v0.1-checklist.md)
