@@ -241,6 +241,39 @@ func TestPagesMkDocsConfigurationUsesGeneratedWikiSource(t *testing.T) {
 	}
 }
 
+func TestStabilityWorkflowIsManualPinnedAndResourceBound(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", ".github", "workflows", "stability.yml"))
+	var document any
+	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
+		t.Fatalf("parse stability workflow: %v", err)
+	}
+	for _, fragment := range []string{
+		"workflow_dispatch:", "contents: read", "cancel-in-progress: false",
+		"runs-on: [self-hosted, linux, x64, aws-cost-exporter-stability]", "timeout-minutes: 1500",
+		"AWS_COST_EXPORTER_STABILITY_DURATION: 24h", "nproc", "536870912",
+		"must not expose AWS credentials", "TestV1StabilitySoak", "actions/upload-artifact@",
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("stability workflow lacks %q", fragment)
+		}
+	}
+	for _, forbidden := range []string{"pull_request:", "pull_request_target", "push:", "contents: write", "packages: write", "id-token: write"} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("stability workflow contains forbidden fragment %q", forbidden)
+		}
+	}
+	uses := regexp.MustCompile(`uses:\s*[\w./-]+@([^\s#]+)`).FindAllStringSubmatch(content, -1)
+	sha := regexp.MustCompile(`^[0-9a-f]{40}$`)
+	if len(uses) != 3 {
+		t.Fatalf("stability workflow has %d actions, want 3", len(uses))
+	}
+	for _, match := range uses {
+		if !sha.MatchString(match[1]) {
+			t.Errorf("stability action is not SHA pinned: %s", match[0])
+		}
+	}
+}
+
 func read(t *testing.T, path string) string {
 	t.Helper()
 	content, err := os.ReadFile(path)

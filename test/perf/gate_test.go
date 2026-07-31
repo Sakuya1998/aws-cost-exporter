@@ -61,13 +61,17 @@ func TestAccountCollectorSeriesBudgetForFixtureSizes(t *testing.T) {
 	}
 }
 
-func TestScrapeLatencyBaselineUnderFifteenSeconds(t *testing.T) {
+func TestV1ReferenceScrapeCompletesWithinFiveSeconds(t *testing.T) {
+	registry := newV1ReferenceRegistry(t, 20, 1000)
+	if series := countBusinessSeries(t, registry); series < 20_000 {
+		t.Fatalf("v1 reference business series=%d, want at least 20000", series)
+	}
 	start := time.Now()
-	if _, err := testutil.GatherAndCount(newBenchRegistry(t)); err != nil {
+	if _, err := testutil.GatherAndCount(registry); err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(start); elapsed > 15*time.Second {
-		t.Fatalf("scrape latency=%s", elapsed)
+	if elapsed := time.Since(start); elapsed >= 5*time.Second {
+		t.Fatalf("v1 reference scrape=%s, want <5s", elapsed)
 	}
 }
 
@@ -90,7 +94,7 @@ func TestSnapshotTraversalAllocationsDoNotGrowWithSeries(t *testing.T) {
 }
 
 func BenchmarkMetricsExposition1000Series(b *testing.B) {
-	registry := newBenchRegistry(b)
+	registry := newV1ReferenceRegistry(b, 20, 1000)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		if _, err := testutil.GatherAndCount(registry); err != nil {
@@ -153,11 +157,15 @@ type fixedClock struct{ instant time.Time }
 
 func (clock fixedClock) Now() time.Time { return clock.instant }
 
-func newBenchRegistry(tb testing.TB) *prometheus.Registry {
+func newV1ReferenceRegistry(tb testing.TB, targets, businessSeriesPerTarget int) *prometheus.Registry {
 	tb.Helper()
-	store := &benchStore{snapshot: accountSeriesSnapshot(tb, 20, 500), statuses: make(map[identity.CollectorID]ports.CollectorStatus)}
-	ids := make([]identity.CollectorID, 0, 60)
-	for targetIndex := range 20 {
+	if targets <= 0 || businessSeriesPerTarget < 5 {
+		tb.Fatal("invalid v1 reference workload")
+	}
+	perWindow := (businessSeriesPerTarget - 5 + 1) / 2
+	store := &benchStore{snapshot: accountSeriesSnapshot(tb, targets, perWindow), statuses: make(map[identity.CollectorID]ports.CollectorStatus)}
+	ids := make([]identity.CollectorID, 0, 3*targets)
+	for targetIndex := range targets {
 		target := identity.TargetID(fmt.Sprintf("target-%02d", targetIndex))
 		for _, name := range []string{"total", "account", "forecast"} {
 			id := identity.CollectorID{Target: target, Name: name}
@@ -170,6 +178,26 @@ func newBenchRegistry(tb testing.TB) *prometheus.Registry {
 	exporter, _ := metrics.NewExporter(store, fixedClock{time.Unix(1_700_000_000, 0)}, version.Info{Version: "bench"}, ids)
 	registry.MustRegister(costCollector, exporter)
 	return registry
+}
+
+func countBusinessSeries(tb testing.TB, registry *prometheus.Registry) int {
+	tb.Helper()
+	families, err := registry.Gather()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	total := 0
+	for _, family := range families {
+		name := family.GetName()
+		if strings.HasPrefix(name, "aws_cost_exporter_") {
+			continue
+		}
+		if strings.HasPrefix(name, "aws_cost_") || strings.HasPrefix(name, "aws_budget_") ||
+			strings.HasPrefix(name, "aws_commitment_") {
+			total += len(family.Metric)
+		}
+	}
+	return total
 }
 
 func accountCosts(count int, window cost.Window, period cost.Period) []cost.Cost {

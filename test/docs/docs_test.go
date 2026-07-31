@@ -204,6 +204,19 @@ func TestCURDocumentationRequiresMatchingAthenaRegion(t *testing.T) {
 	}
 }
 
+func TestV1SLODocumentsReferenceCapacityAndGrowthEvaluation(t *testing.T) {
+	content := read(t, filepath.Join("..", "..", "docs", "operations", "v1-slo.md"))
+	for _, fragment := range []string{
+		"20 targets", "20,000", "2 vCPU", "512 MiB", "p99 latency below 5 seconds", "99.9%",
+		"24 hours", "every 15 seconds", "AWS or Athena", "least-squares slopes", "second half",
+		"4 MiB/hour heap", "8 MiB/hour RSS", "must not be cited as v1.0.0 acceptance",
+	} {
+		if !strings.Contains(content, fragment) {
+			t.Errorf("v1 SLO documentation lacks %q", fragment)
+		}
+	}
+}
+
 func read(t *testing.T, path string) string {
 	t.Helper()
 	content, err := os.ReadFile(path)
