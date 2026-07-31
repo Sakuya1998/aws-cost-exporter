@@ -38,6 +38,7 @@ jobs:
           go install github.com/goreleaser/goreleaser/v2@v2.17.0
           go install github.com/anchore/syft/cmd/syft@v1.46.0
           go install github.com/sigstore/cosign/v3/cmd/cosign@v3.1.1
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
           TRIVY_VERSION=0.72.0
           TRIVY_ARCHIVE="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
           curl -fsSL --retry 3 \
@@ -49,7 +50,12 @@ jobs:
           goreleaser --version
           syft version
           cosign version
+          govulncheck -version
           trivy --version
+      - name: Verify VEX reachability evidence
+        run: |
+          govulncheck -scan symbol ./cmd/aws-cost-exporter
+          echo "GOVULNCHECK_RESULT=passed" >> "$GITHUB_ENV"
       - name: Build and scan every image platform
         shell: bash
         run: |
@@ -60,6 +66,7 @@ jobs:
               --build-arg VERSION="$VERSION" --build-arg REVISION="$GITHUB_SHA" \
               --build-arg BUILD_DATE="$BUILD_DATE" .
             trivy image --platform "$platform" --exit-code 1 --severity HIGH,CRITICAL \
+              --vex .vex/CVE-2026-56852.openvex.json \
               "aws-cost-exporter:scan-$arch"
           done
           echo "TRIVY_RESULT=passed" >> "$GITHUB_ENV"
@@ -127,8 +134,12 @@ jobs:
             --arg certificate_identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$GITHUB_REF_NAME" \
             --arg certificate_oidc_issuer "https://token.actions.githubusercontent.com" \
             --arg trivy_result "$TRIVY_RESULT" \
+            --arg govulncheck_result "$GOVULNCHECK_RESULT" \
+            --arg vex_document ".vex/CVE-2026-56852.openvex.json" \
+            --arg vex_vulnerability "CVE-2026-56852" \
+            --arg vex_status "not_affected" \
             --argjson asset_names "$asset_names" \
-            '{tag:$tag,source_sha:$source_sha,workflow_url:$workflow_url,image:$image,chart:$chart,image_digest:$image_digest,chart_digest:$chart_digest,asset_names:$asset_names,cosign_version:$cosign_version,certificate_identity:$certificate_identity,certificate_oidc_issuer:$certificate_oidc_issuer,trivy_result:$trivy_result}' \
+            '{tag:$tag,source_sha:$source_sha,workflow_url:$workflow_url,image:$image,chart:$chart,image_digest:$image_digest,chart_digest:$chart_digest,asset_names:$asset_names,cosign_version:$cosign_version,certificate_identity:$certificate_identity,certificate_oidc_issuer:$certificate_oidc_issuer,trivy_result:$trivy_result,govulncheck_result:$govulncheck_result,vex_document:$vex_document,vex_vulnerability:$vex_vulnerability,vex_status:$vex_status}' \
             > "$audit_file"
           jq -e '.source_sha | test("^[0-9a-f]{40}$")' "$audit_file" >/dev/null
       - name: Upload sanitized release audit input
