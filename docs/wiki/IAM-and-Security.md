@@ -4,6 +4,12 @@
 
 Grant only the APIs required by enabled collectors. Keep source-principal permissions and target-role permissions separate.
 
+Configuration write access is credential-use authority. An endpoint override
+can redirect signed AWS requests, so production config writers require the same
+trust as credential administrators. Do not use endpoint overrides in
+production. `/metrics` is sensitive financial telemetry; expose it only on a
+private network or behind authenticated TLS and restrict Prometheus access.
+
 ## Collector permissions
 
 - Cost totals, dimensions, and forecast: `ce:GetCostAndUsage`, `ce:GetCostForecast`.
@@ -32,4 +38,6 @@ The published container runs non-root with a read-only-compatible filesystem mod
 
 Follow the repository [Security Policy](https://github.com/Sakuya1998/aws-cost-exporter/security/policy). Use GitHub's private “Report a vulnerability” flow. Do not put a vulnerability, credential, account identifier, or billing sample in a public issue.
 
-Before v1.0, only the latest released minor version receives security fixes.
+After v1.0.0, the latest two minor releases are supported, with the older minor
+kept for at least six months after its successor. See the public threat model
+and `SECURITY.md` for residual risks and coordinated disclosure.

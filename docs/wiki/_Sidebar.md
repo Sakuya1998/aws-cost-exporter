@@ -29,8 +29,8 @@
 
 ## Operations / 运维
 
-- [Operations and Cost Control](https://github.com/Sakuya1998/aws-cost-exporter/wiki/Operations-and-Cost-Control)
-- [运行与成本控制](https://github.com/Sakuya1998/aws-cost-exporter/wiki/Operations-and-Cost-Control-zh-CN)
+- [Operations, v1 SLO and Cost Control](https://github.com/Sakuya1998/aws-cost-exporter/wiki/Operations-and-Cost-Control)
+- [运行、v1 SLO 与成本控制](https://github.com/Sakuya1998/aws-cost-exporter/wiki/Operations-and-Cost-Control-zh-CN)
 - [Troubleshooting and Logging](https://github.com/Sakuya1998/aws-cost-exporter/wiki/Troubleshooting-and-Logging)
 - [故障排查与日志](https://github.com/Sakuya1998/aws-cost-exporter/wiki/Troubleshooting-and-Logging-zh-CN)
 - [IAM and Security](https://github.com/Sakuya1998/aws-cost-exporter/wiki/IAM-and-Security)

@@ -4,6 +4,10 @@
 
 本 Wiki 只描述当前稳定版本 **v0.3.0**。
 
+v1.0 稳定化正在进行，不增加 Collector。它将当前配置、指标与 HTTP
+行为冻结为 v1 契约，并增加可机器校验的兼容性、生命周期、容量、安全和
+发布门禁。在真实验收证据齐全之前，可安装的稳定版本仍是 v0.3.0。
+
 AWS Cost Exporter 将低频更新的 AWS 成本数据转换为稳定、带 `target` 维度的 Prometheus 指标。它是成本可观测性 Exporter，不是财务对账系统，AWS 仍然是最终数据源。
 
 ## 支持能力
@@ -29,4 +33,5 @@ AWS Cost Exporter 将低频更新的 AWS 成本数据转换为稳定、带 `targ
 4. 使用 `--check-config` 校验生产配置。
 5. 第一次刷新成功后导入 Dashboard 和告警规则。
 
-除非明确接受重复 AWS/Athena 请求，否则保持单副本；v0.3.0 没有 Leader Election 或共享缓存。
+除非明确接受重复 AWS/Athena 请求，否则保持单副本。v1 契约保持
+`replicaCount: 1`、仅内存 Snapshot，并且不实现 Leader Election 或共享缓存。

@@ -1,1 +1,1 @@
-AWS Cost Exporter **v0.3.0** documentation · [Source repository](https://github.com/Sakuya1998/aws-cost-exporter) · Generated from `docs/wiki` on `master`; do not edit the published Wiki directly. / 文档由 `master` 分支的 `docs/wiki` 自动生成，请勿直接编辑已发布 Wiki。
+AWS Cost Exporter current stable **v0.3.0** · v1.0 stabilization in progress · [Source repository](https://github.com/Sakuya1998/aws-cost-exporter) · Generated from `docs/wiki` on `master`; do not edit the published Wiki directly. / 当前稳定版 **v0.3.0**，v1.0 稳定化进行中；文档由 `master` 分支的 `docs/wiki` 自动生成，请勿直接编辑已发布 Wiki。

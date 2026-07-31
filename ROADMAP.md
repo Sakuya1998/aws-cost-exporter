@@ -64,11 +64,18 @@ Explorer and CUR values must not be silently merged when their semantics differ.
 
 ## v1.0: Stable operational contract
 
+Status: in progress. The machine-checked configuration, Prometheus, HTTP,
+capacity, security, and release-audit foundations are implemented on the v1
+development branch. v1.0 is not complete until the
+[v1.0 release checklist](docs/releases/v1.0-checklist.md) records Linux race and
+RC validation, the 24-hour stability run, sanitized real AWS least-privilege
+validation, and the v0.3.0 upgrade and rollback exercise with no pod overlap.
+
 Goal: publish a production-stable exporter API.
 - Guarantee semantic-versioning rules for metrics, labels, configuration, and
   HTTP endpoints.
 - Publish upgrade, deprecation, backup, scaling, security, and SLO guidance.
-- Validate high-availability behavior and large-organization performance.
+- Validate the cost-first single-replica lifecycle and large-organization performance.
 - Reach at least 85 percent coverage in core domain and scheduling packages.
 - Complete a public threat model and supply-chain release audit.
 

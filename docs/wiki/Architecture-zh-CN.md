@@ -2,6 +2,13 @@
 
 # 架构
 
+## v1 运维边界
+
+v1 在 2 vCPU、512 MiB 参考环境中支持单进程 20 个 target 和 20,000+
+业务 Series。系统继续使用仅内存 Snapshot：进程重启会丢失缓存值，持久保留
+由 Prometheus 负责。系统不实现 Leader Election、Fencing、共享持久化或多副本
+刷新协调。Helm 替换策略防止新旧 Pod 同时产生付费请求。
+
 AWS Cost Exporter 是依赖向内的 Modular Monolith。Domain package 不导入 AWS SDK、Prometheus、HTTP、Cobra 或 Viper。
 
 ## 模块

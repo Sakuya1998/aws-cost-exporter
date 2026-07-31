@@ -2,6 +2,11 @@
 
 # 安装
 
+v1 的 Helm 还固定 RollingUpdate 参数 `maxSurge: 0` 和 `maxUnavailable: 1`，
+避免新旧 Pod 重叠产生付费 AWS 请求。替换 Pod 启动、刷新仅内存 Cache 并 Ready
+之前会出现临时指标中断。执行 `helm upgrade` 前先用新 Binary 校验当前配置；如果
+Readiness 无法恢复则执行 `helm rollback`。单副本不提供零停机升级模式。
+
 ## Release 产物
 
 从 [GitHub Release v0.3.0](https://github.com/Sakuya1998/aws-cost-exporter/releases/tag/v0.3.0) 下载归档和 checksum。Release 包含 Linux、Windows、macOS 的 amd64/arm64 归档、SPDX JSON SBOM 和 `checksums.txt`。

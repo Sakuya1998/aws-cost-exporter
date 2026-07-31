@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for v0.2 and reaffirmed for v0.3.
+Accepted for v0.2 and v0.3; reaffirmed for v1.0.
 
 ## Context
 
@@ -10,7 +10,10 @@ Multiple replicas independently call billable AWS APIs, maintain unrelated in-me
 
 ## Decision
 
-v0.2 and v0.3 keep `replicaCount: 1` and do not implement leader election or shared persistence.
+v1 keeps `replicaCount: 1` and does not implement leader election or shared
+persistence. Helm uses a cost-first non-overlapping RollingUpdate with
+`maxSurge: 0` and `maxUnavailable: 1`. The old pod must stop before the new pod
+starts, preventing a duplicate paid-request window at the cost of a temporary metrics outage during upgrade.
 
 Options evaluated:
 
@@ -21,4 +24,8 @@ Options evaluated:
 
 ## Consequences
 
-Operators receive a predictable single-writer cache. Availability during pod replacement relies on Kubernetes restart behavior and Prometheus retention. A later release must define ownership, fencing, stale-leader behavior, and request-cost tests before enabling multiple replicas.
+Operators receive a predictable single-writer, memory-only cache. Availability
+during pod replacement relies on Kubernetes restart behavior and Prometheus
+retention. Rollback uses the same non-overlapping replacement. A later release
+must define ownership, fencing, stale-leader behavior, and request-cost tests
+before enabling multiple replicas.

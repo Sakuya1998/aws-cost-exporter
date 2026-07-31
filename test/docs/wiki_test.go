@@ -203,6 +203,33 @@ func TestCurrentDocumentationHasNoStaleReleaseStateOrSecrets(t *testing.T) {
 	}
 }
 
+func TestBilingualWikiPublishesV1StableOperationsContract(t *testing.T) {
+	pages := []string{"Home", "Architecture", "Configuration-Reference", "Operations-and-Cost-Control", "Development-and-Testing", "IAM-and-Security", "Installation"}
+	var english, chinese strings.Builder
+	for _, page := range pages {
+		english.WriteString(read(t, wikiFile(page+".md")))
+		chinese.WriteString(read(t, wikiFile(page+"-zh-CN.md")))
+	}
+	for _, fragment := range []string{
+		"v1.x backward compatibility", "latest two minor releases", "six months", "20 targets", "20,000",
+		"2 vCPU", "512 MiB", "p99 under 5 seconds", "99.9%", "replicaCount: 1",
+		"maxSurge: 0", "maxUnavailable: 1", "temporary metrics outage", "memory-only snapshots", "no leader election",
+	} {
+		if !strings.Contains(english.String(), fragment) {
+			t.Errorf("English v1 operations contract lacks %q", fragment)
+		}
+	}
+	for _, fragment := range []string{
+		"v1.x 向后兼容", "最近两个 minor 版本", "六个月", "20 个 target", "20,000",
+		"2 vCPU", "512 MiB", "p99 小于 5 秒", "99.9%", "replicaCount: 1",
+		"maxSurge: 0", "maxUnavailable: 1", "临时指标中断", "仅内存 Snapshot", "不实现 Leader Election",
+	} {
+		if !strings.Contains(chinese.String(), fragment) {
+			t.Errorf("Chinese v1 operations contract lacks %q", fragment)
+		}
+	}
+}
+
 func wikiFile(name string) string {
 	return filepath.Join("..", "..", "docs", "wiki", name)
 }

@@ -4,6 +4,8 @@
 
 The current stable release is **v0.3.0**. It supports explicit multi-account targets, Cost Explorer, CUR 2.0 through Athena, Organizations, Budgets, Savings Plans and Reserved Instances summaries, Cost Anomaly Detection, and bounded tag costs. Prometheus does not call AWS during a Prometheus scrape; `/metrics` reads an immutable in-memory snapshot.
 
+v1.0 stabilization is in progress on the existing v0.3 behavior; it does not add collectors. The work freezes public configuration, Prometheus, and HTTP contracts, documents the supported capacity and lifecycle, and strengthens security and release evidence. Track the [v1 SLO](docs/operations/v1-slo.md) and [v1.0 release checklist](docs/releases/v1.0-checklist.md). The current stable install commands remain v0.3.0 until all external release gates pass.
+
 ## Quick start
 
 Build locally:
@@ -66,6 +68,7 @@ go test ./...
 go test -race ./...
 go vet ./...
 golangci-lint run
+make contract
 ```
 
 Licensed under the [Apache License 2.0](LICENSE).
