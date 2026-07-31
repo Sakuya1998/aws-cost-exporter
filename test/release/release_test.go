@@ -1,6 +1,7 @@
 package release_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -93,6 +94,71 @@ func TestReleaseWorkflowHasMinimalSignedPublishingContract(t *testing.T) {
 	for _, match := range uses {
 		if !sha.MatchString(match[1]) {
 			t.Errorf("release action is not SHA pinned: %s", match[0])
+		}
+	}
+}
+
+func TestReleaseVEXIsNarrowAndContinuouslyVerified(t *testing.T) {
+	type component struct {
+		ID            string      `json:"@id"`
+		Subcomponents []component `json:"subcomponents"`
+	}
+	type statement struct {
+		Vulnerability struct {
+			Name string `json:"name"`
+		} `json:"vulnerability"`
+		Products        []component `json:"products"`
+		Status          string      `json:"status"`
+		Justification   string      `json:"justification"`
+		ImpactStatement string      `json:"impact_statement"`
+	}
+	var document struct {
+		Context    string      `json:"@context"`
+		ID         string      `json:"@id"`
+		Author     string      `json:"author"`
+		Statements []statement `json:"statements"`
+	}
+
+	vexPath := filepath.Join("..", "..", ".vex", "CVE-2026-56852.openvex.json")
+	content := read(t, vexPath)
+	if err := json.Unmarshal([]byte(content), &document); err != nil {
+		t.Fatalf("parse OpenVEX document: %v", err)
+	}
+	if document.Context != "https://openvex.dev/ns/v0.2.0" || document.ID == "" || document.Author == "" {
+		t.Fatalf("incomplete OpenVEX identity: %+v", document)
+	}
+	if len(document.Statements) != 1 {
+		t.Fatalf("VEX statements = %d, want exactly 1", len(document.Statements))
+	}
+	got := document.Statements[0]
+	if got.Vulnerability.Name != "CVE-2026-56852" || got.Status != "not_affected" || got.Justification != "vulnerable_code_not_in_execute_path" {
+		t.Fatalf("unexpected VEX statement: %+v", got)
+	}
+	if len(got.Products) != 1 || got.Products[0].ID != "pkg:golang/github.com/sakuya1998/aws-cost-exporter" ||
+		len(got.Products[0].Subcomponents) != 1 || got.Products[0].Subcomponents[0].ID != "pkg:golang/golang.org/x/text@v0.30.0" {
+		t.Fatalf("VEX scope is not the exporter/x-text dependency edge: %+v", got.Products)
+	}
+	for _, evidence := range []string{"norm.Iter", "govulncheck", "symbol"} {
+		if !strings.Contains(got.ImpactStatement, evidence) {
+			t.Errorf("VEX impact statement lacks %q evidence", evidence)
+		}
+	}
+
+	workflow := read(t, filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+	for _, fragment := range []string{
+		"golang.org/x/vuln/cmd/govulncheck@v1.6.0",
+		"govulncheck -scan symbol ./cmd/aws-cost-exporter",
+		"--vex .vex/CVE-2026-56852.openvex.json",
+		`echo "GOVULNCHECK_RESULT=passed" >> "$GITHUB_ENV"`,
+		"govulncheck_result", "vex_document", "CVE-2026-56852",
+	} {
+		if !strings.Contains(workflow, fragment) {
+			t.Errorf("release workflow lacks VEX control %q", fragment)
+		}
+	}
+	for _, forbidden := range []string{"--ignore-unfixed", "--ignorefile", "--skip-db-update"} {
+		if strings.Contains(workflow, forbidden) {
+			t.Errorf("release workflow weakens Trivy with %q", forbidden)
 		}
 	}
 }
